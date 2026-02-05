@@ -34,6 +34,7 @@ class Config:
             f"UID={self.DB_USERNAME};"
             f"PWD={self.DB_PASSWORD};"
             "TrustServerCertificate=yes;"
+            "Encrypt=no;"
             "Connection Timeout=60;"
             "Command Timeout=120;"
             "LoginTimeout=60;"

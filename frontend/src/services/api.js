@@ -1,5 +1,6 @@
 // API Configuration and Base Service
-const API_BASE_URL = 'http://localhost:5000';
+// Automatically detect environment: production uses VITE_API_BASE from .env, local uses localhost
+const API_BASE_URL = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
 
 class ApiService {
   constructor() {

@@ -12,8 +12,16 @@ def create_app(config_class=Config):
     
     # Initialize extensions
     jwt.init_app(app)
+    
+    # CORS configuration for both local and production
+    allowed_origins = [
+        "http://localhost:3000",      # Local React dev server (alternative)
+        "http://localhost:5173",      # Local Vite dev server
+        "https://hrlaminar.vdfg.in"   # Production frontend
+    ]
+    
     CORS(app, 
-         origins=["http://localhost:3000", "http://localhost:5173"],
+         origins=allowed_origins,
          supports_credentials=True,
          allow_headers=["Content-Type", "Authorization", "X-Current-View"],
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])

@@ -14,7 +14,7 @@ import Payroll from './pages/Payroll';
 import Offboarding from './pages/Offboarding';
 import Admin from './pages/Admin';
 import Setup from './pages/Setup';
-import Kiosk from './pages/Kiosk';
+import KioskAuth from './pages/KioskAuth';
 
 function App() {
   const { user } = useAuth();
@@ -28,8 +28,8 @@ function App() {
           element={user ? <Navigate to="/dashboard" replace /> : <Login />}
         />
         
-        {/* Kiosk Route - No authentication required */}
-        <Route path="/kiosk" element={<Kiosk />} />
+        {/* Kiosk Route - Requires PIN authentication */}
+        <Route path="/kiosk" element={<KioskAuth />} />
 
         {/* Protected Routes */}
         <Route

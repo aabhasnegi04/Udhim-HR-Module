@@ -2,19 +2,16 @@ import { useState } from 'react';
 import {
     Box,
     Card,
-    CardContent,
     TextField,
     Button,
     Typography,
     MenuItem,
     Alert,
-    Container,
     CircularProgress,
     IconButton,
     InputAdornment,
     useTheme,
     useMediaQuery,
-    Fade,
 } from '@mui/material';
 import {
     Visibility,
@@ -37,7 +34,8 @@ const Login = () => {
     const { login, setUserAfterPasswordChange } = useAuth();
     const navigate = useNavigate();
     const theme = useTheme();
-    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const isTablet = useMediaQuery(theme.breakpoints.down('md'));
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -50,7 +48,6 @@ const Login = () => {
                 if (result.requires_password_change) {
                     setPendingUser(result.user);
                     setShowPasswordChange(true);
-                    // Note: JWT token is already set in authService, so password change API will work
                 } else {
                     navigate('/dashboard');
                 }
@@ -66,7 +63,6 @@ const Login = () => {
 
     const handlePasswordChangeComplete = () => {
         setShowPasswordChange(false);
-        // Set the user in AuthContext after password change is complete
         if (pendingUser) {
             setUserAfterPasswordChange(pendingUser);
         }
@@ -81,180 +77,273 @@ const Login = () => {
         <Box
             sx={{
                 height: '100vh',
+                width: '100vw',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                p: 2,
+                overflow: 'hidden',
+                position: 'relative',
+                backgroundImage: 'url(/login-background.jpg)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    zIndex: 1,
+                },
             }}
         >
-            <Container maxWidth="sm">
-                <Fade in={true} timeout={800}>
-                    <Card
-                        elevation={24}
+            <Card
+                elevation={0}
+                sx={{
+                    position: 'relative',
+                    zIndex: 2,
+                    width: isMobile ? '92%' : isTablet ? '400px' : '420px',
+                    maxWidth: '420px',
+                    borderRadius: 3,
+                    background: '#ffffff',
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+                    p: isMobile ? 3.5 : isTablet ? 4 : 4.5,
+                    mx: 2,
+                }}
+            >
+                {/* Logo and Title */}
+                <Box sx={{ textAlign: 'center', mb: isMobile ? 3 : 3.5 }}>
+                    <BusinessIcon
                         sx={{
-                            borderRadius: 3,
-                            background: 'rgba(255, 255, 255, 0.98)',
-                            backdropFilter: 'blur(20px)',
-                            border: '1px solid rgba(255, 255, 255, 0.2)',
-                            boxShadow: '0 32px 64px rgba(0, 0, 0, 0.15)',
-                            maxWidth: 400,
-                            mx: 'auto',
+                            fontSize: isMobile ? 44 : isTablet ? 50 : 54,
+                            color: 'primary.main',
+                            mb: 1.5,
+                        }}
+                    />
+                    <Typography
+                        variant={isMobile ? 'h5' : 'h4'}
+                        component="h1"
+                        sx={{
+                            fontWeight: 700,
+                            color: '#1a1a1a',
+                            mb: 0.5,
+                            fontSize: isMobile ? '1.5rem' : isTablet ? '1.75rem' : '2rem',
                         }}
                     >
-                        <CardContent sx={{ p: 4 }}>
-                            {/* Header */}
-                            <Box sx={{ textAlign: 'center', mb: 4 }}>
-                                <BusinessIcon
-                                    sx={{
-                                        fontSize: 56,
-                                        color: 'primary.main',
-                                        mb: 2,
-                                    }}
-                                />
-                                <Typography
-                                    variant="h4"
-                                    component="h1"
-                                    sx={{ 
-                                        fontWeight: 700, 
-                                        color: 'text.primary',
-                                        mb: 0.5,
-                                    }}
-                                >
-                                    UDHM HRMS
-                                </Typography>
-                                <Typography 
-                                    variant="body2" 
-                                    color="text.secondary"
-                                    sx={{ fontWeight: 400 }}
-                                >
-                                    Sign in to your account
-                                </Typography>
-                            </Box>
+                        UDHM HRMS
+                    </Typography>
+                    <Typography
+                        variant="body2"
+                        sx={{ 
+                            fontWeight: 400, 
+                            fontSize: isMobile ? '0.875rem' : '0.938rem',
+                            color: '#666',
+                        }}
+                    >
+                        Log in
+                    </Typography>
+                </Box>
 
-                            {error && (
-                                <Alert 
-                                    severity="error" 
-                                    sx={{ 
-                                        mb: 3,
-                                        borderRadius: 2,
-                                    }}
-                                >
-                                    {error}
-                                </Alert>
-                            )}
+                {/* Success/Error Messages */}
+                {error && (
+                    <Alert
+                        severity="error"
+                        sx={{
+                            mb: 2.5,
+                            borderRadius: 1.5,
+                            fontSize: isMobile ? '0.813rem' : '0.875rem',
+                            py: isMobile ? 0.5 : 0.75,
+                            '& .MuiAlert-icon': {
+                                fontSize: isMobile ? '1.25rem' : '1.5rem',
+                            },
+                        }}
+                    >
+                        {error}
+                    </Alert>
+                )}
 
-                            <Box
-                                component="form"
-                                onSubmit={handleSubmit}
-                                sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}
-                            >
-                                <TextField
-                                    label="Email Address"
-                                    type="email"
-                                    fullWidth
-                                    required
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    autoComplete="email"
-                                    autoFocus
-                                    disabled={isLoading}
-                                    variant="outlined"
-                                    sx={{
-                                        '& .MuiOutlinedInput-root': {
-                                            borderRadius: 2,
-                                        },
-                                    }}
-                                />
+                {/* Login Form */}
+                <Box
+                    component="form"
+                    onSubmit={handleSubmit}
+                    sx={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 2 : 2.5 }}
+                >
+                    <TextField
+                        label="Email Address"
+                        type="email"
+                        fullWidth
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="email"
+                        autoFocus
+                        disabled={isLoading}
+                        variant="outlined"
+                        size={isMobile ? 'small' : 'medium'}
+                        sx={{
+                            '& .MuiOutlinedInput-root': {
+                                borderRadius: 1.5,
+                                backgroundColor: '#f8f9fa',
+                                fontSize: isMobile ? '0.875rem' : '0.938rem',
+                                '& fieldset': {
+                                    borderColor: '#e0e0e0',
+                                },
+                                '&:hover fieldset': {
+                                    borderColor: '#bdbdbd',
+                                },
+                                '&.Mui-focused fieldset': {
+                                    borderWidth: '1.5px',
+                                },
+                            },
+                            '& .MuiInputLabel-root': {
+                                fontSize: isMobile ? '0.875rem' : '0.938rem',
+                            },
+                        }}
+                    />
 
-                                <TextField
-                                    label="Password"
-                                    type={showPassword ? 'text' : 'password'}
-                                    fullWidth
-                                    required
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    autoComplete="current-password"
-                                    disabled={isLoading}
-                                    variant="outlined"
-                                    InputProps={{
-                                        endAdornment: (
-                                            <InputAdornment position="end">
-                                                <IconButton
-                                                    onClick={handleTogglePassword}
-                                                    edge="end"
-                                                    disabled={isLoading}
-                                                >
-                                                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                                                </IconButton>
-                                            </InputAdornment>
-                                        ),
-                                    }}
-                                    sx={{
-                                        '& .MuiOutlinedInput-root': {
-                                            borderRadius: 2,
-                                        },
-                                    }}
-                                />
+                    <TextField
+                        label="Password"
+                        type={showPassword ? 'text' : 'password'}
+                        fullWidth
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        disabled={isLoading}
+                        variant="outlined"
+                        size={isMobile ? 'small' : 'medium'}
+                        InputProps={{
+                            endAdornment: (
+                                <InputAdornment position="end">
+                                    <IconButton
+                                        onClick={handleTogglePassword}
+                                        edge="end"
+                                        disabled={isLoading}
+                                        size={isMobile ? 'small' : 'medium'}
+                                        sx={{ 
+                                            mr: -0.5,
+                                            '& .MuiSvgIcon-root': {
+                                                fontSize: isMobile ? '1.25rem' : '1.5rem',
+                                            },
+                                        }}
+                                    >
+                                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                                    </IconButton>
+                                </InputAdornment>
+                            ),
+                        }}
+                        sx={{
+                            '& .MuiOutlinedInput-root': {
+                                borderRadius: 1.5,
+                                backgroundColor: '#f8f9fa',
+                                fontSize: isMobile ? '0.875rem' : '0.938rem',
+                                '& fieldset': {
+                                    borderColor: '#e0e0e0',
+                                },
+                                '&:hover fieldset': {
+                                    borderColor: '#bdbdbd',
+                                },
+                                '&.Mui-focused fieldset': {
+                                    borderWidth: '1.5px',
+                                },
+                            },
+                            '& .MuiInputLabel-root': {
+                                fontSize: isMobile ? '0.875rem' : '0.938rem',
+                            },
+                        }}
+                    />
 
-                                <TextField
-                                    select
-                                    label="Role"
-                                    fullWidth
-                                    required
-                                    value={role}
-                                    onChange={(e) => setRole(e.target.value)}
-                                    disabled={isLoading}
-                                    variant="outlined"
-                                    sx={{
-                                        '& .MuiOutlinedInput-root': {
-                                            borderRadius: 2,
-                                        },
-                                    }}
-                                >
-                                    <MenuItem value="HR">HR Administrator</MenuItem>
-                                    <MenuItem value="MANAGER">Manager</MenuItem>
-                                    <MenuItem value="EMPLOYEE">Employee</MenuItem>
-                                </TextField>
+                    <TextField
+                        select
+                        label="Role"
+                        fullWidth
+                        required
+                        value={role}
+                        onChange={(e) => setRole(e.target.value)}
+                        disabled={isLoading}
+                        variant="outlined"
+                        size={isMobile ? 'small' : 'medium'}
+                        sx={{
+                            '& .MuiOutlinedInput-root': {
+                                borderRadius: 1.5,
+                                backgroundColor: '#f8f9fa',
+                                fontSize: isMobile ? '0.875rem' : '0.938rem',
+                                '& fieldset': {
+                                    borderColor: '#e0e0e0',
+                                },
+                                '&:hover fieldset': {
+                                    borderColor: '#bdbdbd',
+                                },
+                                '&.Mui-focused fieldset': {
+                                    borderWidth: '1.5px',
+                                },
+                            },
+                            '& .MuiInputLabel-root': {
+                                fontSize: isMobile ? '0.875rem' : '0.938rem',
+                            },
+                        }}
+                    >
+                        <MenuItem 
+                            value="HR"
+                            sx={{ fontSize: isMobile ? '0.875rem' : '0.938rem' }}
+                        >
+                            HR Administrator
+                        </MenuItem>
+                        <MenuItem 
+                            value="MANAGER"
+                            sx={{ fontSize: isMobile ? '0.875rem' : '0.938rem' }}
+                        >
+                            Manager
+                        </MenuItem>
+                        <MenuItem 
+                            value="EMPLOYEE"
+                            sx={{ fontSize: isMobile ? '0.875rem' : '0.938rem' }}
+                        >
+                            Employee
+                        </MenuItem>
+                    </TextField>
 
-                                <Button
-                                    type="submit"
-                                    variant="contained"
-                                    size="large"
-                                    fullWidth
-                                    disabled={isLoading}
-                                    sx={{
-                                        mt: 1,
-                                        py: 1.5,
-                                        fontSize: '1rem',
-                                        fontWeight: 600,
-                                        borderRadius: 2,
-                                        textTransform: 'none',
-                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                        boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
-                                        '&:hover': {
-                                            background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
-                                            boxShadow: '0 6px 20px rgba(102, 126, 234, 0.6)',
-                                            transform: 'translateY(-1px)',
-                                        },
-                                        '&:disabled': {
-                                            background: 'rgba(0, 0, 0, 0.12)',
-                                            boxShadow: 'none',
-                                        },
-                                        transition: 'all 0.3s ease',
-                                    }}
-                                >
-                                    {isLoading ? (
-                                        <CircularProgress size={24} color="inherit" />
-                                    ) : (
-                                        'Sign In'
-                                    )}
-                                </Button>
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Fade>
-            </Container>
+                    <Button
+                        type="submit"
+                        variant="contained"
+                        size={isMobile ? 'medium' : 'large'}
+                        fullWidth
+                        disabled={isLoading}
+                        sx={{
+                            mt: isMobile ? 0.5 : 1,
+                            py: isMobile ? 1.1 : isTablet ? 1.3 : 1.4,
+                            fontSize: isMobile ? '0.938rem' : '1rem',
+                            fontWeight: 600,
+                            borderRadius: 1.5,
+                            textTransform: 'none',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            boxShadow: '0 2px 8px rgba(102, 126, 234, 0.3)',
+                            '&:hover': {
+                                background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
+                                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                                transform: 'translateY(-1px)',
+                            },
+                            '&:active': {
+                                transform: 'translateY(0)',
+                            },
+                            '&:disabled': {
+                                background: '#e0e0e0',
+                                color: '#9e9e9e',
+                                boxShadow: 'none',
+                            },
+                            transition: 'all 0.2s ease',
+                        }}
+                    >
+                        {isLoading ? (
+                            <CircularProgress size={isMobile ? 20 : 22} color="inherit" />
+                        ) : (
+                            'Log in'
+                        )}
+                    </Button>
+                </Box>
+            </Card>
 
             {/* Password Change Dialog */}
             <PasswordChangeDialog

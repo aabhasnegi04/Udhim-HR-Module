@@ -35,6 +35,13 @@ class BulkAttendanceUpload:
             current_app.logger.info(f"Excel file loaded. Columns found: {list(df.columns)}")
             current_app.logger.info(f"Total rows in file: {len(df)}")
             
+            # Normalize column names - remove content in parentheses
+            df.columns = df.columns.str.strip()
+            df.columns = df.columns.str.replace(r'\s*\([^)]*\)\s*', '', regex=True)
+            df.columns = df.columns.str.strip()
+            
+            current_app.logger.info(f"Normalized columns: {list(df.columns)}")
+            
             # Validate columns
             missing_columns = [col for col in BulkAttendanceUpload.REQUIRED_COLUMNS if col not in df.columns]
             if missing_columns:
@@ -127,9 +134,9 @@ class BulkAttendanceUpload:
     def _get_valid_employee_ids():
         """Get list of valid employee IDs from database using stored procedure"""
         try:
-            from app.database.executor import StoredProcedureExecutor
+            from app.database.multi_tenant_executor import MultiTenantExecutor
             
-            result = StoredProcedureExecutor.execute_procedure('proc_get_valid_employee_ids')
+            result = MultiTenantExecutor.execute_procedure('proc_get_valid_employee_ids')
             
             if result["success"] and result["data"]:
                 return {row['employee_id'] for row in result["data"]}
@@ -150,6 +157,10 @@ class BulkAttendanceUpload:
             
             # Convert employee_id to string and clean it
             employee_id_str = str(employee_id).strip()
+            
+            # Handle format "1 - John Doe (EMP001)" - extract just the numeric ID
+            if ' - ' in employee_id_str:
+                employee_id_str = employee_id_str.split(' - ')[0].strip()
             
             # Try to extract numeric ID
             try:
@@ -252,7 +263,7 @@ class BulkAttendanceUpload:
     def _save_attendance_record(data):
         """Save attendance record to database using stored procedure"""
         try:
-            from app.database.executor import StoredProcedureExecutor
+            from app.database.multi_tenant_executor import MultiTenantExecutor
             
             employee_id = data['employee_id']
             attendance_date = data['attendance_date']
@@ -277,7 +288,7 @@ class BulkAttendanceUpload:
                 'working_minutes': working_mins
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_upsert_attendance_record', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_upsert_attendance_record', parameters)
             
             if result["success"]:
                 return {'success': True}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import AppDatePicker from '../../components/common/AppDatePicker';
 import {
     Box,
     Typography,
@@ -232,13 +233,10 @@ const AttendanceDashboard = () => {
             <Paper sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3, md: 4 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2, md: 3 }, flexWrap: 'wrap' }}>
                     <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                        <TextField
-                            fullWidth
+                        <AppDatePicker
                             label="Date"
-                            type="date"
                             value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                            slotProps={{ inputLabel: { shrink: true } }}
+                            onChange={(v) => setSelectedDate(v)}
                             size="small"
                         />
                     </Box>

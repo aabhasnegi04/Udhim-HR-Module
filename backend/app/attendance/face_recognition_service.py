@@ -25,7 +25,7 @@ except Exception as e:
     face_recognition = None
     print(f"Face recognition not available: {str(e)}")
 
-from app.database.executor import StoredProcedureExecutor
+from app.database.multi_tenant_executor import MultiTenantExecutor
 from app.database.connection import DatabaseConnection
 
 
@@ -144,14 +144,15 @@ class FaceRecognitionService:
             parameters = {
                 'employee_id': employee_id,
                 'face_encoding_json': encoding_json,
-                'image_path': None,  # We're not saving images for now
-                'created_by': created_by
+                'photo_path': None,  # We're not saving images for now
+                'registered_by': created_by
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_register_employee_face', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_register_employee_face', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
+                
                 if isinstance(proc_result, dict) and proc_result.get("success") == 1:
                     # Clear cache so new encoding is loaded
                     FaceRecognitionService._face_encodings_cache['loaded_at'] = 0
@@ -198,7 +199,7 @@ class FaceRecognitionService:
                 return cache['encodings'], cache['employee_ids'], cache['names']
             
             # Load from employee_personal table via stored procedure
-            result = StoredProcedureExecutor.execute_procedure('proc_get_all_active_face_encodings')
+            result = MultiTenantExecutor.execute_procedure('proc_get_all_active_face_encodings')
             
             if not result["success"] or not result["data"]:
                 current_app.logger.warning("No face encodings found in employee_personal table")
@@ -350,7 +351,7 @@ class FaceRecognitionService:
                 'employee_id': employee_id,
                 'attendance_date': date.today()
             }
-            status_result = StoredProcedureExecutor.execute_procedure('proc_get_today_attendance_status', parameters)
+            status_result = MultiTenantExecutor.execute_procedure('proc_get_today_attendance_status', parameters)
             
             status_code = 0  # Default: not checked in
             first_check_in = None
@@ -402,7 +403,7 @@ class FaceRecognitionService:
                 'image_path': None
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_mark_attendance_with_face', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_mark_attendance_with_face', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -413,7 +414,7 @@ class FaceRecognitionService:
                         'employee_id': employee_id,
                         'attendance_date': date.today()
                     }
-                    StoredProcedureExecutor.execute_procedure('proc_update_daily_attendance', daily_params)
+                    MultiTenantExecutor.execute_procedure('proc_update_daily_attendance', daily_params)
                     
                     return {
                         "success": True,
@@ -454,7 +455,7 @@ class FaceRecognitionService:
         """Check if employee has registered face"""
         try:
             parameters = {'employee_id': employee_id}
-            result = StoredProcedureExecutor.execute_procedure('proc_check_face_registration_status', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_check_face_registration_status', parameters)
             
             if result["success"] and result["data"]:
                 status_data = result["data"][0]

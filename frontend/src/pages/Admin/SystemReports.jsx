@@ -1,28 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import AppDatePicker from '../../components/common/AppDatePicker';
 import {
-    Box,
-    Typography,
-    Paper,
-    Button,
-    Card,
-    CardContent,
-    CardActions,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    TextField,
-    Stack,
-    Alert,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Chip,
-    Grid,
-    CircularProgress
+    Box, Typography, Paper, Button, Card, CardContent,
+    FormControl, InputLabel, Select, MenuItem,
+    Stack, Alert, Table, TableBody, TableCell, TableContainer,
+    TableHead, TableRow, Chip, CircularProgress,
 } from '@mui/material';
 import {
     Download as DownloadIcon,
@@ -30,317 +12,179 @@ import {
     People as PeopleIcon,
     Schedule as AttendanceIcon,
     BeachAccess as LeaveIcon,
-    AccountBalance as PayrollIcon
 } from '@mui/icons-material';
 import adminService from '../../services/adminService';
+
+const REPORT_TYPES = [
+    {
+        id: 'employee-master',
+        title: 'Employee Master Report',
+        description: 'Complete employee database with personal and official information',
+        icon: <PeopleIcon />,
+        category: 'Employee',
+        color: 'primary',
+    },
+    {
+        id: 'attendance-summary',
+        title: 'Attendance Summary Report',
+        description: 'Monthly attendance summary with present, absent, late and WFH days',
+        icon: <AttendanceIcon />,
+        category: 'Attendance',
+        color: 'success',
+    },
+    {
+        id: 'leave-summary',
+        title: 'Leave Summary Report',
+        description: 'Leave balance, taken, and pending leave requests by employee',
+        icon: <LeaveIcon />,
+        category: 'Leave',
+        color: 'warning',
+    },
+];
 
 const SystemReports = () => {
     const [selectedReport, setSelectedReport] = useState('');
     const [dateRange, setDateRange] = useState({ from: '', to: '' });
     const [department, setDepartment] = useState('');
+    const [departments, setDepartments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
+    // Generated report history (in-session, not persisted)
+    const [reportHistory, setReportHistory] = useState([]);
 
-    // Report types configuration
-    const reportTypes = [
-        {
-            id: 'employee-master',
-            title: 'Employee Master Report',
-            description: 'Complete employee database with personal and official information',
-            icon: <PeopleIcon />,
-            category: 'Employee',
-            lastGenerated: '2024-01-15',
-            records: 8
-        },
-        {
-            id: 'attendance-summary',
-            title: 'Attendance Summary Report',
-            description: 'Monthly attendance summary with present, absent, and leave days',
-            icon: <AttendanceIcon />,
-            category: 'Attendance',
-            lastGenerated: '2024-01-14',
-            records: 240
-        },
-        {
-            id: 'leave-summary',
-            title: 'Leave Summary Report',
-            description: 'Leave balance, taken, and pending leave requests by employee',
-            icon: <LeaveIcon />,
-            category: 'Leave',
-            lastGenerated: '2024-01-13',
-            records: 24
-        }
-    ];
+    useEffect(() => {
+        loadDepartments();
+    }, []);
 
-    const recentReports = [
-        {
-            id: 1,
-            name: 'Employee Master Report - January 2026',
-            type: 'Employee Master',
-            generatedDate: '2026-01-29',
-            generatedBy: 'Admin User',
-            fileSize: '2.3 KB',
-            status: 'Ready'
-        }
-    ];
+    const loadDepartments = async () => {
+        try {
+            const result = await adminService.getDepartments();
+            if (result.success && result.data) {
+                setDepartments(result.data.map(d => d.department_name));
+            }
+        } catch { /* non-critical */ }
+    };
 
-    const departments = ['All Departments', 'Engineering', 'Human Resources', 'Marketing', 'Finance'];
+    const downloadCSV = (data, reportType) => {
+        if (!data?.length) return;
+        
+        // Define explicit column order for each report type
+        const columnOrders = {
+            'attendance-summary': ['employee_code', 'employee_name', 'department', 'present_days', 'wfh_days', 'late_days', 'absent_days', 'total_days'],
+            'employee-master': ['employee_id', 'employee_code', 'first_name', 'last_name', 'email', 'phone', 'department', 'designation', 'date_of_joining', 'status', 'work_location', 'gender', 'date_of_birth', 'created_at'],
+            'leave-summary': ['employee_code', 'employee_name', 'department', 'leave_name', 'total_allocated', 'used', 'remaining', 'total_requests', 'approved_requests', 'pending_requests'],
+        };
+        
+        // Use defined order if available, otherwise fall back to object keys
+        const headers = columnOrders[reportType] || Object.keys(data[0]);
+        
+        const csvContent = [
+            headers.join(','),
+            ...data.map(row =>
+                headers.map(h => {
+                    const v = row[h];
+                    if (v === null || v === undefined) return '';
+                    const s = String(v);
+                    return (s.includes(',') || s.includes('"') || s.includes('\n'))
+                        ? `"${s.replace(/"/g, '""')}"` : s;
+                }).join(',')
+            ),
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${reportType}-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 
     const handleGenerateReport = async () => {
-        if (!selectedReport) {
-            setError('Please select a report type');
-            return;
-        }
+        if (!selectedReport) { setError('Please select a report type'); return; }
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
 
         try {
-            setLoading(true);
-            setError(null);
-            setSuccess(null);
-
-            // Prepare filters
             const filters = {};
-            
-            if (dateRange.from) {
-                filters.date_from = dateRange.from;
-            }
-            
-            if (dateRange.to) {
-                filters.date_to = dateRange.to;
-            }
-            
-            if (department && department !== 'All Departments') {
-                filters.department = department;
-            }
+            if (dateRange.from) filters.date_from = dateRange.from;
+            if (dateRange.to)   filters.date_to   = dateRange.to;
+            if (department && department !== 'All Departments') filters.department = department;
 
-            // Generate report
             const result = await adminService.generateSystemReport(selectedReport, filters);
-            
+
             if (result.success) {
-                setSuccess(`Report generated successfully! Found ${result.data.length} records.`);
-                
-                // Convert data to CSV and download
-                if (result.data && result.data.length > 0) {
-                    downloadCSV(result.data, selectedReport);
-                }
+                const data = Array.isArray(result.data) ? result.data : [];
+                setSuccess(`Report generated — ${data.length} records found.`);
+
+                const reportMeta = REPORT_TYPES.find(r => r.id === selectedReport);
+                const entry = {
+                    id: Date.now(),
+                    name: `${reportMeta?.title} — ${new Date().toLocaleDateString()}`,
+                    type: reportMeta?.category || selectedReport,
+                    generatedAt: new Date().toISOString(),
+                    records: data.length,
+                    filters: { ...filters },
+                    data,
+                };
+                setReportHistory(prev => [entry, ...prev]);
+
+                if (data.length > 0) downloadCSV(data, selectedReport);
             } else {
                 setError(result.error || 'Failed to generate report');
             }
         } catch (err) {
             setError('Failed to generate report: ' + err.message);
-            console.error('Report generation error:', err);
         } finally {
             setLoading(false);
         }
     };
 
-    const downloadCSV = (data, reportType) => {
-        if (!data || data.length === 0) {
-            setError('No data to download');
-            return;
-        }
-
-        // Get column headers from first row
-        const headers = Object.keys(data[0]);
-        
-        // Create CSV content
-        const csvContent = [
-            headers.join(','), // Header row
-            ...data.map(row => 
-                headers.map(header => {
-                    const value = row[header];
-                    // Handle null/undefined values and escape commas
-                    if (value === null || value === undefined) return '';
-                    const stringValue = String(value);
-                    // Escape quotes and wrap in quotes if contains comma
-                    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-                        return `"${stringValue.replace(/"/g, '""')}"`;
-                    }
-                    return stringValue;
-                }).join(',')
-            )
-        ].join('\n');
-
-        // Create and download file
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        
-        // Generate filename with timestamp
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-        const filename = `${reportType}-${timestamp}.csv`;
-        link.setAttribute('download', filename);
-        
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    const getCategoryColor = (category) => {
-        switch (category) {
-            case 'Employee':
-                return 'primary';
-            case 'Attendance':
-                return 'success';
-            case 'Leave':
-                return 'warning';
-            case 'Payroll':
-                return 'info';
-            default:
-                return 'default';
-        }
-    };
-
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'Ready':
-                return 'success';
-            case 'Processing':
-                return 'warning';
-            case 'Failed':
-                return 'error';
-            default:
-                return 'default';
-        }
+    const handleRedownload = (entry) => {
+        downloadCSV(entry.data, entry.type.toLowerCase().replace(' ', '-'));
     };
 
     return (
         <Box>
             <Alert severity="info" sx={{ mb: 3 }}>
-                System reports provide comprehensive data exports for analysis and compliance. All reports include data from across modules.
+                Generate data exports for analysis and compliance. Reports download as CSV automatically.
             </Alert>
 
-            {/* Success Message */}
-            {success && (
-                <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess(null)}>
-                    {success}
-                </Alert>
-            )}
+            {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
+            {error   && <Alert severity="error"   sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-            {/* Error Message */}
-            {error && (
-                <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
-                    {error}
-                </Alert>
-            )}
-
-            {/* Header Actions */}
-            <Box sx={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center', 
-                mb: 3,
-                flexWrap: 'wrap',
-                gap: 2
-            }}>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    System Reports
-                </Typography>
-                <Stack direction="row" spacing={1}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<DownloadIcon />}
-                    >
-                        Download Template
-                    </Button>
-                </Stack>
-            </Box>
-
-            {/* Report Generation Card */}
+            {/* Generate Card */}
             <Card sx={{ mb: 3 }}>
                 <CardContent>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                        <Box sx={{ 
-                            p: 1, 
-                            borderRadius: 1, 
-                            bgcolor: 'primary.light',
-                            color: 'primary.main',
-                            mr: 2 
-                        }}>
+                        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'primary.light', color: 'primary.main', mr: 2 }}>
                             <ReportIcon />
                         </Box>
                         <Box>
-                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                                Generate New Report
-                            </Typography>
+                            <Typography variant="h6" fontWeight={600}>Generate New Report</Typography>
                             <Typography variant="body2" color="text.secondary">
-                                Select report type and configure filters to generate comprehensive data exports
+                                Select a report type and optional filters, then generate
                             </Typography>
                         </Box>
                     </Box>
-                    
-                    <Box sx={{ 
-                        display: 'flex', 
-                        gap: 2, 
-                        alignItems: 'flex-end',
-                        flexWrap: 'wrap',
-                        mb: 2
-                    }}>
+
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                         <Box sx={{ flex: '2 1 300px', minWidth: 300 }}>
                             <FormControl fullWidth size="small">
                                 <InputLabel>Report Type</InputLabel>
-                                <Select
-                                    value={selectedReport}
-                                    onChange={(e) => setSelectedReport(e.target.value)}
-                                    label="Report Type"
-                                    size="small"
-                                    sx={{
-                                        '& .MuiSelect-select': {
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            py: 1
-                                        }
-                                    }}
-                                    MenuProps={{
-                                        PaperProps: {
-                                            sx: {
-                                                maxHeight: 400,
-                                                minWidth: 350,
-                                                '& .MuiMenuItem-root': {
-                                                    py: 1.5,
-                                                    px: 2,
-                                                    whiteSpace: 'normal'
-                                                }
-                                            }
-                                        }
-                                    }}
-                                    renderValue={(selected) => {
-                                        if (!selected) return '';
-                                        const selectedReport = reportTypes.find(report => report.id === selected);
-                                        if (!selectedReport) return '';
-                                        return (
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                <Box sx={{ 
-                                                    color: `${getCategoryColor(selectedReport.category)}.main`,
-                                                    display: 'flex',
-                                                    alignItems: 'center'
-                                                }}>
-                                                    {selectedReport.icon}
-                                                </Box>
-                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                    {selectedReport.title}
-                                                </Typography>
-                                            </Box>
-                                        );
-                                    }}
-                                >
-                                    {reportTypes.map((report) => (
-                                        <MenuItem key={report.id} value={report.id}>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                                                <Box sx={{ 
-                                                    color: `${getCategoryColor(report.category)}.main`,
-                                                    display: 'flex'
-                                                }}>
-                                                    {report.icon}
-                                                </Box>
-                                                <Box sx={{ flex: 1 }}>
-                                                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                                                        {report.title}
-                                                    </Typography>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        {report.description}
+                                <Select value={selectedReport} onChange={e => setSelectedReport(e.target.value)} label="Report Type">
+                                    {REPORT_TYPES.map(r => (
+                                        <MenuItem key={r.id} value={r.id} sx={{ py: 1.5 }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
+                                                <Box sx={{ color: `${r.color}.main`, display: 'flex', flexShrink: 0 }}>{r.icon}</Box>
+                                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25 }}>{r.title}</Typography>
+                                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'normal', lineHeight: 1.3 }}>
+                                                        {r.description}
                                                     </Typography>
                                                 </Box>
                                             </Box>
@@ -349,228 +193,138 @@ const SystemReports = () => {
                                 </Select>
                             </FormControl>
                         </Box>
-                        
-                        <Box sx={{ flex: '1 1 150px', minWidth: 150 }}>
+
+                        <Box sx={{ flex: '1 1 160px', minWidth: 160 }}>
                             <FormControl fullWidth size="small">
                                 <InputLabel>Department</InputLabel>
-                                <Select
-                                    value={department}
-                                    onChange={(e) => setDepartment(e.target.value)}
-                                    label="Department"
-                                    size="small"
-                                >
-                                    {departments.map((dept) => (
-                                        <MenuItem key={dept} value={dept}>
-                                            {dept}
-                                        </MenuItem>
-                                    ))}
+                                <Select value={department} onChange={e => setDepartment(e.target.value)} label="Department">
+                                    <MenuItem value="">All Departments</MenuItem>
+                                    {departments.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
                                 </Select>
                             </FormControl>
                         </Box>
-                        
-                        <Box sx={{ flex: '0 1 140px', minWidth: 140 }}>
-                            <TextField
-                                label="From Date"
-                                type="date"
-                                fullWidth
-                                size="small"
-                                InputLabelProps={{ shrink: true }}
-                                value={dateRange.from}
-                                onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
-                            />
+
+                        <Box sx={{ flex: '0 1 160px', minWidth: 160 }}>
+                            <AppDatePicker label="From Date" size="small" value={dateRange.from}
+                                onChange={v => setDateRange(p => ({ ...p, from: v }))} />
                         </Box>
-                        
-                        <Box sx={{ flex: '0 1 140px', minWidth: 140 }}>
-                            <TextField
-                                label="To Date"
-                                type="date"
-                                fullWidth
-                                size="small"
-                                InputLabelProps={{ shrink: true }}
-                                value={dateRange.to}
-                                onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
-                            />
+
+                        <Box sx={{ flex: '0 1 160px', minWidth: 160 }}>
+                            <AppDatePicker label="To Date" size="small" value={dateRange.to}
+                                onChange={v => setDateRange(p => ({ ...p, to: v }))} />
                         </Box>
-                        
-                        <Box sx={{ flex: '0 0 auto' }}>
-                            <Button
-                                variant="contained"
-                                startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <ReportIcon />}
-                                onClick={handleGenerateReport}
-                                disabled={!selectedReport || loading}
-                                sx={{ 
-                                    height: 40,
-                                    px: 3,
-                                    whiteSpace: 'nowrap'
-                                }}
-                            >
-                                {loading ? 'Generating...' : 'Generate'}
-                            </Button>
-                        </Box>
-                        
+
+                        <Button
+                            variant="contained"
+                            startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <ReportIcon />}
+                            onClick={handleGenerateReport}
+                            disabled={!selectedReport || loading}
+                            sx={{ height: 40, px: 3, whiteSpace: 'nowrap' }}
+                        >
+                            {loading ? 'Generating...' : 'Generate & Download'}
+                        </Button>
+
                         {selectedReport && (
-                            <Box sx={{ flex: '0 0 auto' }}>
-                                <Button
-                                    variant="outlined"
-                                    onClick={() => {
-                                        setSelectedReport('');
-                                        setDateRange({ from: '', to: '' });
-                                        setDepartment('');
-                                    }}
-                                    sx={{ 
-                                        height: 40,
-                                        px: 2,
-                                        whiteSpace: 'nowrap'
-                                    }}
-                                >
-                                    Clear
-                                </Button>
-                            </Box>
+                            <Button variant="outlined" onClick={() => { setSelectedReport(''); setDateRange({ from: '', to: '' }); setDepartment(''); }}
+                                sx={{ height: 40 }}>
+                                Clear
+                            </Button>
                         )}
                     </Box>
                 </CardContent>
             </Card>
 
-            {/* Available Report Types */}
+            {/* Report Type Cards */}
             <Paper sx={{ mb: 3 }}>
-                <Box sx={{ p: 3, pb: 2 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                        Available Report Types
-                    </Typography>
+                <Box sx={{ p: 3, pb: 1 }}>
+                    <Typography variant="subtitle1" fontWeight={600}>Available Report Types</Typography>
                 </Box>
-                <Box sx={{ 
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
-                    gap: 2,
-                    p: 3,
-                    pt: 0
-                }}>
-                    {reportTypes.map((report) => (
-                        <Card 
-                            key={report.id} 
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2, p: 3, pt: 1.5 }}>
+                    {REPORT_TYPES.map(r => (
+                        <Card
+                            key={r.id}
                             variant="outlined"
-                            sx={{ 
+                            onClick={() => setSelectedReport(r.id)}
+                            sx={{
                                 cursor: 'pointer',
-                                transition: 'all 0.2s',
-                                '&:hover': {
-                                    boxShadow: 2,
-                                    borderColor: 'primary.main'
-                                },
-                                ...(selectedReport === report.id && {
-                                    borderColor: 'primary.main',
-                                    bgcolor: 'primary.50'
-                                })
+                                transition: 'all 0.15s',
+                                '&:hover': { boxShadow: 2, borderColor: `${r.color}.main` },
+                                ...(selectedReport === r.id && { borderColor: `${r.color}.main`, bgcolor: `${r.color}.50` }),
                             }}
-                            onClick={() => setSelectedReport(report.id)}
                         >
                             <CardContent sx={{ p: 2 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                    <Box sx={{ 
-                                        p: 1, 
-                                        borderRadius: 1, 
-                                        bgcolor: `${getCategoryColor(report.category)}.light`,
-                                        color: `${getCategoryColor(report.category)}.main`,
-                                        mr: 2 
-                                    }}>
-                                        {report.icon}
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                                    <Box sx={{ p: 1, borderRadius: 1, bgcolor: `${r.color}.light`, color: `${r.color}.main` }}>
+                                        {r.icon}
                                     </Box>
-                                    <Box sx={{ flex: 1 }}>
-                                        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                                            {report.title}
-                                        </Typography>
-                                        <Chip 
-                                            label={report.category} 
-                                            color={getCategoryColor(report.category)}
-                                            size="small"
-                                        />
+                                    <Box>
+                                        <Typography variant="subtitle2" fontWeight={600}>{r.title}</Typography>
+                                        <Chip label={r.category} color={r.color} size="small" />
                                     </Box>
                                 </Box>
-                                
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    {report.description}
-                                </Typography>
-
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <Typography variant="caption" color="text.secondary">
-                                        {report.records} records
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        Last: {new Date(report.lastGenerated).toLocaleDateString()}
-                                    </Typography>
-                                </Box>
+                                <Typography variant="body2" color="text.secondary">{r.description}</Typography>
                             </CardContent>
                         </Card>
                     ))}
                 </Box>
             </Paper>
 
-            {/* Recent Reports */}
+            {/* Generated Reports History */}
             <Paper>
-                <Box sx={{ p: 3, pb: 2 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        Recent Reports
+                <Box sx={{ p: 3, pb: 1 }}>
+                    <Typography variant="subtitle1" fontWeight={600}>Generated This Session</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                        Reports generated during this session — re-download anytime
                     </Typography>
                 </Box>
                 <TableContainer>
                     <Table>
                         <TableHead>
-                            <TableRow>
-                                <TableCell>Report Name</TableCell>
-                                <TableCell>Type</TableCell>
-                                <TableCell>Generated Date</TableCell>
-                                <TableCell>Generated By</TableCell>
-                                <TableCell>File Size</TableCell>
-                                <TableCell>Status</TableCell>
-                                <TableCell align="right">Actions</TableCell>
+                            <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                {['Report Name', 'Type', 'Records', 'Generated At', 'Filters', ''].map(h => (
+                                    <TableCell key={h}><Typography variant="caption" fontWeight={600}>{h}</Typography></TableCell>
+                                ))}
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {recentReports.map((report) => (
-                                <TableRow key={report.id}>
+                            {reportHistory.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} align="center">
+                                        <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
+                                            No reports generated yet. Generate your first report above.
+                                        </Typography>
+                                    </TableCell>
+                                </TableRow>
+                            ) : reportHistory.map(entry => (
+                                <TableRow key={entry.id} hover>
                                     <TableCell>
-                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                            {report.name}
+                                        <Typography variant="body2" fontWeight={500}>{entry.name}</Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Chip label={entry.type} variant="outlined" size="small" />
+                                    </TableCell>
+                                    <TableCell>{entry.records}</TableCell>
+                                    <TableCell>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {new Date(entry.generatedAt).toLocaleTimeString()}
                                         </Typography>
                                     </TableCell>
                                     <TableCell>
-                                        <Chip 
-                                            label={report.type} 
-                                            variant="outlined"
-                                            size="small"
-                                        />
-                                    </TableCell>
-                                    <TableCell>
-                                        {new Date(report.generatedDate).toLocaleDateString()}
-                                    </TableCell>
-                                    <TableCell>{report.generatedBy}</TableCell>
-                                    <TableCell>{report.fileSize}</TableCell>
-                                    <TableCell>
-                                        <Chip 
-                                            label={report.status} 
-                                            color={getStatusColor(report.status)}
-                                            size="small"
-                                        />
+                                        <Typography variant="caption" color="text.secondary">
+                                            {entry.filters.department || 'All depts'}
+                                            {entry.filters.date_from ? ` · ${entry.filters.date_from}` : ''}
+                                            {entry.filters.date_to   ? ` → ${entry.filters.date_to}` : ''}
+                                        </Typography>
                                     </TableCell>
                                     <TableCell align="right">
-                                        <Button
-                                            size="small"
-                                            startIcon={<DownloadIcon />}
-                                            disabled={report.status !== 'Ready'}
-                                        >
+                                        <Button size="small" startIcon={<DownloadIcon />}
+                                            onClick={() => handleRedownload(entry)}
+                                            disabled={entry.records === 0}>
                                             Download
                                         </Button>
                                     </TableCell>
                                 </TableRow>
                             ))}
-                            {recentReports.length === 0 && (
-                                <TableRow>
-                                    <TableCell colSpan={7} align="center">
-                                        <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
-                                            No reports generated yet. Generate your first report to see it here.
-                                        </Typography>
-                                    </TableCell>
-                                </TableRow>
-                            )}
                         </TableBody>
                     </Table>
                 </TableContainer>

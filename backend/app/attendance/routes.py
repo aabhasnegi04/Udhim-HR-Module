@@ -1,7 +1,8 @@
 from flask import Blueprint, request, current_app
 from app.attendance.service import AttendanceService
-from app.database.executor import StoredProcedureExecutor
-from app.middleware.jwt_required import jwt_required
+from app.database.multi_tenant_executor import MultiTenantExecutor
+from app.middleware.multi_tenant_jwt import multi_tenant_jwt_required
+from app.middleware.company_context import company_required
 from app.middleware.role_guard import hr_required, manager_required, employee_required, hr_or_manager_required, role_required
 from app.middleware.active_employee_required import active_employee_required
 from app.utils.response import (
@@ -25,6 +26,7 @@ def allowed_file(filename):
 
 # FACE RECOGNITION / RAW LOGGING
 @attendance_bp.route('/face-log', methods=['POST'])
+@company_required
 @hr_required  # Only HR can access face recognition logs directly
 def mark_face_attendance_raw():
     """Mark face recognition attendance raw log (HR only)"""
@@ -67,6 +69,7 @@ def mark_face_attendance_raw():
 
 # DAILY ATTENDANCE GENERATION
 @attendance_bp.route('/generate-daily', methods=['POST'])
+@company_required
 @hr_required  # Only HR can trigger daily generation
 def generate_daily_attendance():
     """Generate daily attendance for a specific date (HR only)"""
@@ -97,6 +100,7 @@ def generate_daily_attendance():
 
 # MANUAL ATTENDANCE
 @attendance_bp.route('/manual', methods=['POST'])
+@company_required
 @hr_or_manager_required  # HR and Manager can mark manual attendance
 def mark_manual_attendance():
     """Mark manual attendance (HR/Manager only)"""
@@ -148,7 +152,8 @@ def mark_manual_attendance():
 
 # VIEW ATTENDANCE
 @attendance_bp.route('/employee/<int:employee_id>', methods=['GET'])
-@employee_required  # All authenticated users can access
+@company_required
+@role_required("EMPLOYEE", "HR", "MANAGER")  # All authenticated users can access
 def get_employee_attendance(employee_id):
     """Get attendance records for a specific employee"""
     try:
@@ -190,6 +195,7 @@ def get_employee_attendance(employee_id):
 
 # REGULARIZATION WORKFLOW
 @attendance_bp.route('/regularize', methods=['POST'])
+@company_required
 @employee_required  # All roles can apply for regularization
 @active_employee_required  # Must be active employee
 def apply_regularization():
@@ -229,10 +235,34 @@ def apply_regularization():
         result = AttendanceService.apply_attendance_regularization(data)
         
         if result["success"]:
-            return success_response(
-                message=result["message"],
-                data=result["data"]
-            )
+            # Notify employee confirmation + notify HR
+            try:
+                from app.notifications.service import NotificationService
+                from app.database.multi_tenant_executor import MultiTenantExecutor
+                from flask_jwt_extended import get_jwt_identity
+                uid = get_jwt_identity()
+                NotificationService.create(
+                    user_id=uid,
+                    title='Regularization Submitted',
+                    message=f'Your attendance regularization request for {data["attendance_date"]} has been submitted.',
+                    module='ATTENDANCE'
+                )
+                hr_rows = MultiTenantExecutor.execute_procedure('proc_get_hr_user_ids', {}).get('data', [])
+                if hr_rows and isinstance(hr_rows[0], list): hr_rows = hr_rows[0]
+                emp_r = MultiTenantExecutor.execute_procedure('proc_get_employee_info', {'employee_id': data['employee_id']}).get('data', [])
+                if emp_r and isinstance(emp_r[0], list): emp_r = emp_r[0]
+                emp_name = emp_r[0].get('full_name', 'An employee') if emp_r else 'An employee'
+                for hr in (hr_rows or []):
+                    if hr.get('user_id'):
+                        NotificationService.create(
+                            user_id=hr['user_id'],
+                            title='Regularization Request',
+                            message=f'{emp_name} has submitted an attendance regularization request.',
+                            module='ATTENDANCE'
+                        )
+            except Exception:
+                pass
+            return success_response(message=result["message"], data=result["data"])
         else:
             return error_response(result["message"], status_code=400)
             
@@ -241,6 +271,7 @@ def apply_regularization():
 
 
 @attendance_bp.route('/regularize/<int:request_id>/approve', methods=['PUT'])
+@company_required
 @hr_or_manager_required  # HR and Manager can approve regularization
 def approve_regularization(request_id):
     """Approve attendance regularization request"""
@@ -277,10 +308,22 @@ def approve_regularization(request_id):
         )
         
         if result["success"]:
-            return success_response(
-                message=result["message"],
-                data=result["data"]
-            )
+            try:
+                from app.notifications.service import NotificationService
+                from app.database.multi_tenant_executor import MultiTenantExecutor
+                r = MultiTenantExecutor.execute_procedure('proc_get_regularization_user', {'request_id': request_id}).get('data', [])
+                if r and isinstance(r[0], list): r = r[0]
+                if r and r[0].get('user_id'):
+                    NotificationService.create(
+                        user_id=r[0]['user_id'],
+                        title='Regularization Approved',
+                        message=f'Your attendance regularization request has been approved.',
+                        module='ATTENDANCE',
+                        reference_id=request_id
+                    )
+            except Exception:
+                pass
+            return success_response(message=result["message"], data=result["data"])
         else:
             return error_response(result["message"], status_code=400)
             
@@ -289,6 +332,7 @@ def approve_regularization(request_id):
 
 
 @attendance_bp.route('/regularize/<int:request_id>/reject', methods=['PUT'])
+@company_required
 @hr_or_manager_required  # HR and Manager can reject regularization
 def reject_regularization(request_id):
     """Reject attendance regularization request"""
@@ -308,10 +352,22 @@ def reject_regularization(request_id):
         )
         
         if result["success"]:
-            return success_response(
-                message=result["message"],
-                data=result["data"]
-            )
+            try:
+                from app.notifications.service import NotificationService
+                from app.database.multi_tenant_executor import MultiTenantExecutor
+                r = MultiTenantExecutor.execute_procedure('proc_get_regularization_user', {'request_id': request_id}).get('data', [])
+                if r and isinstance(r[0], list): r = r[0]
+                if r and r[0].get('user_id'):
+                    NotificationService.create(
+                        user_id=r[0]['user_id'],
+                        title='Regularization Rejected',
+                        message=f'Your attendance regularization request has been rejected. Reason: {data["comment"]}',
+                        module='ATTENDANCE',
+                        reference_id=request_id
+                    )
+            except Exception:
+                pass
+            return success_response(message=result["message"], data=result["data"])
         else:
             return error_response(result["message"], status_code=400)
             
@@ -321,6 +377,7 @@ def reject_regularization(request_id):
 
 # DASHBOARD & REPORTS
 @attendance_bp.route('/dashboard', methods=['GET'])
+@company_required
 @hr_or_manager_required  # HR and Manager can view dashboard
 def get_attendance_dashboard():
     """Get attendance dashboard data"""
@@ -353,7 +410,8 @@ def get_attendance_dashboard():
 
 
 @attendance_bp.route('/reports/date-range', methods=['GET'])
-@jwt_required  # All authenticated users can access, role-based logic handled inside
+@company_required
+@multi_tenant_jwt_required  # All authenticated users can access, role-based logic handled inside
 def get_attendance_by_date_range():
     """Get attendance records for a date range"""
     try:
@@ -410,6 +468,7 @@ def get_attendance_by_date_range():
 
 
 @attendance_bp.route('/regularizations/pending', methods=['GET'])
+@company_required
 @hr_or_manager_required  # HR and Manager can view pending regularizations
 def get_pending_regularizations():
     """Get pending regularization requests"""
@@ -429,6 +488,7 @@ def get_pending_regularizations():
 
 
 @attendance_bp.route('/regularizations/my', methods=['GET'])
+@company_required
 @role_required("EMPLOYEE", "HR", "MANAGER")  # All roles can view their own regularizations
 def get_my_regularizations():
     """Get my regularization requests"""
@@ -457,6 +517,7 @@ def get_my_regularizations():
 
 
 @attendance_bp.route('/reports/monthly-summary', methods=['GET'])
+@company_required
 @hr_or_manager_required  # HR and Manager can view monthly summary
 def get_monthly_attendance_summary():
     """Get monthly attendance summary"""
@@ -487,6 +548,7 @@ def get_monthly_attendance_summary():
 
 # FACE RECOGNITION ENDPOINTS
 @attendance_bp.route('/mark-face', methods=['POST'])
+@company_required
 @employee_required  # All employees can mark face attendance
 @active_employee_required  # Must be active employee
 def mark_face_attendance():
@@ -585,6 +647,7 @@ def mark_face_attendance():
 
 
 @attendance_bp.route('/register-face', methods=['POST'])
+@company_required
 @hr_required  # Only HR can register employee faces
 def register_employee_face():
     """Register employee face for recognition (HR only)"""
@@ -643,7 +706,8 @@ def register_employee_face():
 
 
 @attendance_bp.route('/face-status/<int:employee_id>', methods=['GET'])
-@employee_required  # All employees can check their face registration status
+@company_required
+@role_required("EMPLOYEE", "HR", "MANAGER")  # All authenticated users can check face registration status
 def check_face_registration_status(employee_id):
     """Check if employee has registered face (employees can only check their own)"""
     try:
@@ -673,7 +737,8 @@ def check_face_registration_status(employee_id):
 
 
 @attendance_bp.route('/today-status/<int:employee_id>', methods=['GET'])
-@employee_required  # All employees can check their today's attendance
+@company_required
+@role_required("EMPLOYEE", "HR", "MANAGER")  # All authenticated users can check their today's attendance
 def get_today_attendance_status(employee_id):
     """Get today's attendance status for employee (employees can only check their own)"""
     try:
@@ -693,7 +758,7 @@ def get_today_attendance_status(employee_id):
             'attendance_date': date.today()
         }
         
-        result = StoredProcedureExecutor.execute_procedure('proc_get_today_attendance_status', parameters)
+        result = MultiTenantExecutor.execute_procedure('proc_get_today_attendance_status', parameters)
         
         if result["success"] and result["data"]:
             # Handle both dict and list responses from stored procedure
@@ -751,21 +816,12 @@ def get_today_attendance_status(employee_id):
 
 # BULK UPLOAD ENDPOINTS
 @attendance_bp.route('/bulk-upload', methods=['POST'])
+@company_required
+@hr_required
 def bulk_upload_attendance():
-    """Bulk upload attendance from Excel file"""
+    """Bulk upload attendance from Excel file (HR only)"""
     try:
         from app.attendance.bulk_upload import BulkAttendanceUpload
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt
-        
-        # Verify JWT token
-        verify_jwt_in_request()
-        
-        # Check role
-        claims = get_jwt()
-        user_role = claims.get("role")
-        
-        if user_role != "HR":
-            return error_response("Only HR can bulk upload attendance", status_code=403)
         
         # Check if file is present
         if 'file' not in request.files:
@@ -776,40 +832,46 @@ def bulk_upload_attendance():
         if file.filename == '':
             return validation_error_response("No file selected")
         
-        if not allowed_file(file.filename):
+        if not file.filename.lower().endswith(('.xlsx', '.xls')):
             return validation_error_response("Invalid file type. Only .xlsx and .xls files are allowed")
         
-        # Create upload folder if it doesn't exist
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        # Save file temporarily
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False)
+        file.save(temp_file.name)
+        temp_file.close()
         
-        # Save file
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(file_path)
+        current_app.logger.info(f"Processing bulk upload file: {temp_file.name}")
         
-        current_app.logger.info(f"Processing bulk upload file: {file_path}")
-        
-        # Process file
-        result = BulkAttendanceUpload.validate_and_process_file(file_path)
-        
-        # Clean up file
         try:
-            os.remove(file_path)
-        except:
-            pass
-        
-        if result['success']:
-            return success_response(
-                message=result['message'],
-                data={
-                    'total_rows': result['total_rows'],
-                    'successful_rows': result['successful_rows'],
-                    'failed_rows': result['failed_rows'],
-                    'errors': result['errors']
-                }
-            )
-        else:
-            return error_response(result['message'], status_code=400)
+            # Process file
+            result = BulkAttendanceUpload.validate_and_process_file(temp_file.name)
+            
+            # Clean up file
+            try:
+                os.remove(temp_file.name)
+            except:
+                pass
+            
+            if result['success']:
+                return success_response(
+                    message=result['message'],
+                    data={
+                        'total_rows': result['total_rows'],
+                        'successful_rows': result['successful_rows'],
+                        'failed_rows': result['failed_rows'],
+                        'errors': result['errors']
+                    }
+                )
+            else:
+                return error_response(result['message'], status_code=400)
+        except Exception as e:
+            # Clean up temp file on error
+            try:
+                os.remove(temp_file.name)
+            except:
+                pass
+            raise e
             
     except Exception as e:
         import traceback
@@ -819,22 +881,13 @@ def bulk_upload_attendance():
 
 
 @attendance_bp.route('/bulk-upload/template', methods=['GET'])
+@company_required
+@hr_required
 def download_bulk_upload_template():
-    """Download Excel template for bulk upload"""
+    """Download Excel template for bulk upload (HR only)"""
     try:
         from app.attendance.bulk_upload import BulkAttendanceUpload
         from flask import send_file
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt
-        
-        # Verify JWT token
-        verify_jwt_in_request()
-        
-        # Check role
-        claims = get_jwt()
-        user_role = claims.get("role")
-        
-        if user_role != "HR":
-            return error_response("Only HR can download template", status_code=403)
         
         current_app.logger.info("Generating bulk upload template...")
         
@@ -864,6 +917,7 @@ def download_bulk_upload_template():
 # ============================================================================
 
 @attendance_bp.route('/edit/<int:attendance_id>', methods=['PUT'])
+@company_required
 @hr_required  # Only HR can edit attendance records
 def edit_attendance_record(attendance_id):
     """Edit attendance record (HR only)"""
@@ -955,8 +1009,9 @@ def edit_attendance_record(attendance_id):
 # ============================================================================
 
 @attendance_bp.route('/kiosk/verify-pin', methods=['POST'])
+@company_required
 def verify_kiosk_pin():
-    """Verify kiosk PIN (no authentication required)"""
+    """Verify kiosk PIN"""
     try:
         from app.attendance.kiosk_service import KioskService
         
@@ -987,8 +1042,9 @@ def verify_kiosk_pin():
 
 
 @attendance_bp.route('/kiosk/<int:kiosk_id>/mark-attendance', methods=['POST'])
+@company_required
 def mark_kiosk_attendance(kiosk_id):
-    """Mark attendance via kiosk using face recognition (no authentication required)"""
+    """Mark attendance via kiosk using face recognition"""
     try:
         from app.attendance.kiosk_service import KioskService
         
@@ -1018,8 +1074,9 @@ def mark_kiosk_attendance(kiosk_id):
 
 
 @attendance_bp.route('/kiosk/<int:kiosk_id>/today-logs', methods=['GET'])
+@company_required
 def get_kiosk_today_logs(kiosk_id):
-    """Get today's attendance logs for kiosk (no authentication required)"""
+    """Get today's attendance logs for kiosk"""
     try:
         from app.attendance.kiosk_service import KioskService
         
@@ -1039,8 +1096,9 @@ def get_kiosk_today_logs(kiosk_id):
 
 
 @attendance_bp.route('/kiosk/<int:kiosk_id>/settings', methods=['GET'])
+@company_required
 def get_kiosk_settings(kiosk_id):
-    """Get kiosk settings (no authentication required)"""
+    """Get kiosk settings"""
     try:
         from app.attendance.kiosk_service import KioskService
         
@@ -1059,11 +1117,12 @@ def get_kiosk_settings(kiosk_id):
         return error_response("Failed to retrieve settings", status_code=500)
 
 
-# Kiosk management endpoints (no auth required - PIN verified at kiosk level)
+# Kiosk management endpoints
 
 @attendance_bp.route('/kiosk/list', methods=['GET'])
+@company_required
 def list_all_kiosks():
-    """List all kiosks (accessible after PIN verification)"""
+    """List all kiosks"""
     try:
         from app.attendance.kiosk_service import KioskService
         
@@ -1083,6 +1142,7 @@ def list_all_kiosks():
 
 
 @attendance_bp.route('/kiosk/create', methods=['POST'])
+@company_required
 @hr_required
 def create_kiosk():
     """Create new kiosk (HR only)"""
@@ -1126,8 +1186,9 @@ def create_kiosk():
 
 
 @attendance_bp.route('/kiosk/<int:kiosk_id>/update', methods=['PUT'])
+@company_required
 def update_kiosk(kiosk_id):
-    """Update kiosk settings (accessible after PIN verification)"""
+    """Update kiosk settings"""
     try:
         from app.attendance.kiosk_service import KioskService
         

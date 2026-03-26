@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import AppDatePicker from '../../components/common/AppDatePicker';
 import { useAuth } from '../../context/AuthContext';
 import { useProfileSwitching } from '../../context/ProfileSwitchingContext';
 import {
@@ -462,14 +463,11 @@ const Regularization = () => {
                 <DialogTitle>New Regularization Request</DialogTitle>
                 <DialogContent>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-                        <TextField
-                            fullWidth
+                        <AppDatePicker
                             label="Attendance Date"
-                            type="date"
                             value={newRequest.attendance_date}
-                            onChange={(e) => setNewRequest({ ...newRequest, attendance_date: e.target.value })}
+                            onChange={(v) => setNewRequest({ ...newRequest, attendance_date: v })}
                             disabled={!isEmployeeActive()}
-                            slotProps={{ inputLabel: { shrink: true } }}
                         />
                         <FormControl fullWidth disabled={!isEmployeeActive()}>
                             <InputLabel>Requested Status</InputLabel>

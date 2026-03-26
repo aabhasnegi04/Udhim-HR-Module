@@ -17,6 +17,7 @@ import {
     Visibility,
     VisibilityOff,
     Business as BusinessIcon,
+    Videocam as VideocamIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -25,7 +26,6 @@ import PasswordChangeDialog from '../components/PasswordChangeDialog';
 const Login = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [role, setRole] = useState('HR');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
@@ -43,7 +43,7 @@ const Login = () => {
         setIsLoading(true);
 
         try {
-            const result = await login(email, password, role);
+            const result = await login(email, password);
             if (result.success) {
                 if (result.requires_password_change) {
                     setPendingUser(result.user);
@@ -99,6 +99,34 @@ const Login = () => {
                 },
             }}
         >
+            {/* Kiosk Access Button - top right */}
+            <Button
+                onClick={() => navigate('/kiosk')}
+                startIcon={<VideocamIcon sx={{ fontSize: isMobile ? '1rem' : '1.125rem' }} />}
+                sx={{
+                    position: 'absolute',
+                    top: isMobile ? 12 : 20,
+                    right: isMobile ? 12 : 24,
+                    zIndex: 3,
+                    color: '#fff',
+                    fontSize: isMobile ? '0.75rem' : '0.813rem',
+                    fontWeight: 500,
+                    textTransform: 'none',
+                    px: isMobile ? 1.5 : 2,
+                    py: 0.75,
+                    borderRadius: 2,
+                    bgcolor: 'rgba(255,255,255,0.15)',
+                    backdropFilter: 'blur(4px)',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    '&:hover': {
+                        bgcolor: 'rgba(255,255,255,0.25)',
+                        border: '1px solid rgba(255,255,255,0.5)',
+                    },
+                }}
+            >
+                {isMobile ? 'Kiosk' : 'Attendance Kiosk'}
+            </Button>
+
             <Card
                 elevation={0}
                 sx={{
@@ -255,56 +283,6 @@ const Login = () => {
                         }}
                     />
 
-                    <TextField
-                        select
-                        label="Role"
-                        fullWidth
-                        required
-                        value={role}
-                        onChange={(e) => setRole(e.target.value)}
-                        disabled={isLoading}
-                        variant="outlined"
-                        size={isMobile ? 'small' : 'medium'}
-                        sx={{
-                            '& .MuiOutlinedInput-root': {
-                                borderRadius: 1.5,
-                                backgroundColor: '#f8f9fa',
-                                fontSize: isMobile ? '0.875rem' : '0.938rem',
-                                '& fieldset': {
-                                    borderColor: '#e0e0e0',
-                                },
-                                '&:hover fieldset': {
-                                    borderColor: '#bdbdbd',
-                                },
-                                '&.Mui-focused fieldset': {
-                                    borderWidth: '1.5px',
-                                },
-                            },
-                            '& .MuiInputLabel-root': {
-                                fontSize: isMobile ? '0.875rem' : '0.938rem',
-                            },
-                        }}
-                    >
-                        <MenuItem 
-                            value="HR"
-                            sx={{ fontSize: isMobile ? '0.875rem' : '0.938rem' }}
-                        >
-                            HR Administrator
-                        </MenuItem>
-                        <MenuItem 
-                            value="MANAGER"
-                            sx={{ fontSize: isMobile ? '0.875rem' : '0.938rem' }}
-                        >
-                            Manager
-                        </MenuItem>
-                        <MenuItem 
-                            value="EMPLOYEE"
-                            sx={{ fontSize: isMobile ? '0.875rem' : '0.938rem' }}
-                        >
-                            Employee
-                        </MenuItem>
-                    </TextField>
-
                     <Button
                         type="submit"
                         variant="contained"
@@ -342,6 +320,25 @@ const Login = () => {
                             'Log in'
                         )}
                     </Button>
+
+                    {/* Forgot Password Link */}
+                    <Box sx={{ textAlign: 'center', mt: 1 }}>
+                        <Button
+                            onClick={() => navigate('/forgot-password')}
+                            disabled={isLoading}
+                            sx={{
+                                fontSize: isMobile ? '0.813rem' : '0.875rem',
+                                textTransform: 'none',
+                                color: 'primary.main',
+                                '&:hover': {
+                                    backgroundColor: 'transparent',
+                                    textDecoration: 'underline',
+                                },
+                            }}
+                        >
+                            Forgot Password?
+                        </Button>
+                    </Box>
                 </Box>
             </Card>
 

@@ -28,13 +28,14 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import employeeService from '../../services/employeeService';
+import adminService from '../../services/adminService';
 
-const departments = ['All Departments', 'Engineering', 'Human Resources', 'Finance', 'Marketing', 'Sales'];
 const statuses = ['All Status', 'ACTIVE', 'INACTIVE'];
 
 const EmployeeList = () => {
     const navigate = useNavigate();
     const [employees, setEmployees] = useState([]);
+    const [departments, setDepartments] = useState(['All Departments']);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -50,7 +51,21 @@ const EmployeeList = () => {
     // Load employees on component mount
     useEffect(() => {
         loadEmployees();
+        loadDepartments();
     }, []);
+
+    const loadDepartments = async () => {
+        try {
+            const result = await adminService.getDepartments();
+            if (result.success && result.data) {
+                const departmentNames = result.data.map(dept => dept.department_name);
+                setDepartments(['All Departments', ...departmentNames]);
+            }
+        } catch (error) {
+            console.error('Error loading departments:', error);
+            // Keep default departments if API fails
+        }
+    };
 
     const loadEmployees = async () => {
         try {
@@ -324,11 +339,19 @@ const EmployeeList = () => {
                                 <TableCell>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                                         <Avatar 
+                                            src={`${import.meta.env.VITE_API_BASE || 'http://localhost:5000'}/employees/${employee.employee_id}/photo?size=80&company=${import.meta.env.VITE_COMPANY_CODE || 'udhim'}`}
                                             sx={{ 
                                                 bgcolor: employee.status === 'INACTIVE' ? 'grey.400' : 'primary.main',
                                                 width: 40,
                                                 height: 40,
                                                 fontSize: '0.875rem'
+                                            }}
+                                            imgProps={{
+                                                loading: 'lazy',  // Lazy load images
+                                                onError: (e) => {
+                                                    // Fallback to initials if image fails to load
+                                                    e.target.style.display = 'none';
+                                                }
                                             }}
                                         >
                                             {employee.employee_name?.charAt(0) || 'E'}

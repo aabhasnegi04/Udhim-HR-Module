@@ -1,5 +1,5 @@
 from flask import current_app
-from app.database.executor import StoredProcedureExecutor
+from app.database.multi_tenant_executor import MultiTenantExecutor
 from datetime import datetime, date
 
 
@@ -15,7 +15,7 @@ class EmployeeService:
             dict: Employee list result
         """
         try:
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_list')
+            result = MultiTenantExecutor.execute_procedure('proc_get_employee_list')
             
             if result["success"]:
                 return {
@@ -47,7 +47,7 @@ class EmployeeService:
             dict: Active employee list result
         """
         try:
-            result = StoredProcedureExecutor.execute_procedure('proc_get_active_employees_for_attendance')
+            result = MultiTenantExecutor.execute_procedure('proc_get_active_employees_for_attendance')
             
             if result["success"]:
                 return {
@@ -83,7 +83,7 @@ class EmployeeService:
         """
         try:
             parameters = {'employee_id': employee_id}
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_profile', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_employee_profile', parameters)
             
             if result["success"] and result["data"]:
                 return {
@@ -120,7 +120,7 @@ class EmployeeService:
         try:
             # For now, return all employees and filter on frontend
             # TODO: Create proc_search_employees if needed
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_list')
+            result = MultiTenantExecutor.execute_procedure('proc_get_employee_list')
             
             if result["success"]:
                 # Filter results by search term
@@ -166,7 +166,7 @@ class EmployeeService:
         try:
             # For now, return all employees and filter on frontend
             # TODO: Create proc_get_employees_by_department if needed
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_list')
+            result = MultiTenantExecutor.execute_procedure('proc_get_employee_list')
             
             if result["success"]:
                 # Filter results by department
@@ -220,13 +220,20 @@ class EmployeeService:
                 'designation': employee_data.get('designation'),
                 'join_date': employee_data.get('date_of_joining') or employee_data.get('join_date'),
                 'salary': employee_data.get('salary'),
-                'created_by_user_id': created_by_user_id
+                'created_by_user_id': created_by_user_id,
+                'dob': employee_data.get('dob') or None,
+                'gender': employee_data.get('gender') or None,
+                'address': employee_data.get('address') or None,
+                'emergency_contact': employee_data.get('emergency_contact') or None,
+                'employment_type': employee_data.get('employment_type') or None,
+                'work_location': employee_data.get('work_location') or None,
+                'manager_id': employee_data.get('manager_id') or None,
             }
             
             current_app.logger.info(f"Adding employee with role mapping: {parameters['first_name']} {parameters['last_name']}, Email: {parameters['email']}, Designation: {parameters['designation']}")
             
             # Use the new procedure with role mapping
-            result = StoredProcedureExecutor.execute_procedure('proc_add_employee_with_role_mapping', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_add_employee_with_role_mapping', parameters)
             
             if result["success"] and result["data"]:
                 employee_result = result["data"][0]
@@ -341,7 +348,7 @@ class EmployeeService:
                 'manager_id': manager_id
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_update_employee', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_update_employee', parameters)
             
             if result["success"] and result["data"]:
                 update_result = result["data"][0]
@@ -396,7 +403,7 @@ class EmployeeService:
                 'deactivated_by_user_id': deactivated_by_user_id,
                 'reason': reason
             }
-            result = StoredProcedureExecutor.execute_procedure('proc_deactivate_employee', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_deactivate_employee', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -446,7 +453,7 @@ class EmployeeService:
                 'reactivated_by_user_id': reactivated_by_user_id,
                 'reason': reason
             }
-            result = StoredProcedureExecutor.execute_procedure('proc_reactivate_employee', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_reactivate_employee', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -490,7 +497,7 @@ class EmployeeService:
         """
         try:
             parameters = {'employee_id': employee_id}
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_status_history', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_employee_status_history', parameters)
             
             if result["success"]:
                 return {

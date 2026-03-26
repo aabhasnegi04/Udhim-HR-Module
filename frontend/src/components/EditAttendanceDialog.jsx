@@ -40,13 +40,30 @@ const EditAttendanceDialog = ({ open, onClose, attendanceRecord, onSave }) => {
     // Initialize form data when dialog opens
     useEffect(() => {
         if (open && attendanceRecord) {
+            // Parse the attendance date properly
+            let attendanceDate = attendanceRecord.date || attendanceRecord.attendance_date || '2000-01-01';
+            
+            // Convert various date formats to YYYY-MM-DD
+            try {
+                const parsedDate = new Date(attendanceDate);
+                if (!isNaN(parsedDate.getTime())) {
+                    const year = parsedDate.getFullYear();
+                    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+                    const day = String(parsedDate.getDate()).padStart(2, '0');
+                    attendanceDate = `${year}-${month}-${day}`;
+                }
+            } catch (e) {
+                console.error('Date parsing error:', e);
+                attendanceDate = '2000-01-01';
+            }
+            
             setFormData({
                 status: attendanceRecord.status || '',
                 checkIn: attendanceRecord.checkIn && attendanceRecord.checkIn !== '-' 
-                    ? dayjs(`2000-01-01 ${attendanceRecord.checkIn}`) 
+                    ? dayjs(`${attendanceDate} ${attendanceRecord.checkIn}`) 
                     : null,
                 checkOut: attendanceRecord.checkOut && attendanceRecord.checkOut !== '-' 
-                    ? dayjs(`2000-01-01 ${attendanceRecord.checkOut}`) 
+                    ? dayjs(`${attendanceDate} ${attendanceRecord.checkOut}`) 
                     : null
             });
             setError('');
@@ -112,10 +129,34 @@ const EditAttendanceDialog = ({ open, onClose, attendanceRecord, onSave }) => {
                 onSave();
                 onClose();
             } else {
-                setError(result.error || 'Failed to update attendance record');
+                setError(result.message || result.error || 'Failed to update attendance record');
             }
         } catch (err) {
-            setError('Failed to update attendance record');
+            // Extract user-friendly error message from the error object
+            let errorMessage = err.message || err.error || 'Failed to update attendance record';
+            
+            // Clean up technical ODBC error details
+            // The error format is: Database error: ('42000', '[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Cannot modify attendance...')
+            
+            // Try multiple patterns to extract the clean message
+            if (errorMessage.includes('SQL Server]')) {
+                // Split by 'SQL Server]' and get everything after it
+                const parts = errorMessage.split('SQL Server]');
+                if (parts.length > 1) {
+                    // Get the message part and remove trailing parentheses and error codes
+                    let cleanMessage = parts[parts.length - 1];
+                    // Remove error codes like (50000) and (SQLExecDirectW)
+                    cleanMessage = cleanMessage.replace(/\s*\(\d+\)\s*/g, '').replace(/\s*\(SQL\w+\)\s*/g, '');
+                    // Remove leading/trailing quotes and whitespace
+                    cleanMessage = cleanMessage.replace(/^['"\s]+|['"\s)]+$/g, '').trim();
+                    if (cleanMessage) {
+                        errorMessage = cleanMessage;
+                    }
+                }
+            }
+            
+            setError(errorMessage);
+            console.error('Edit attendance error:', err);
             console.error('Edit attendance error:', err);
         } finally {
             setLoading(false);
@@ -206,9 +247,26 @@ const EditAttendanceDialog = ({ open, onClose, attendanceRecord, onSave }) => {
                                     <Typography variant="body2" color="info.dark">
                                         Working Hours: {
                                             (() => {
-                                                const diff = formData.checkOut.diff(formData.checkIn, 'minute');
-                                                const hours = Math.floor(diff / 60);
-                                                const minutes = diff % 60;
+                                                // Extract hours and minutes from both times
+                                                const checkInHour = formData.checkIn.hour();
+                                                const checkInMinute = formData.checkIn.minute();
+                                                const checkOutHour = formData.checkOut.hour();
+                                                const checkOutMinute = formData.checkOut.minute();
+                                                
+                                                // Convert to total minutes
+                                                const checkInTotalMinutes = (checkInHour * 60) + checkInMinute;
+                                                const checkOutTotalMinutes = (checkOutHour * 60) + checkOutMinute;
+                                                
+                                                // Calculate difference
+                                                let diffMinutes = checkOutTotalMinutes - checkInTotalMinutes;
+                                                
+                                                // Handle negative diff (checkout before checkin means next day)
+                                                if (diffMinutes < 0) {
+                                                    diffMinutes = diffMinutes + (24 * 60); // Add 24 hours in minutes
+                                                }
+                                                
+                                                const hours = Math.floor(diffMinutes / 60);
+                                                const minutes = diffMinutes % 60;
                                                 return `${hours}h ${minutes}m`;
                                             })()
                                         }

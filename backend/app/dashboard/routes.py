@@ -1,75 +1,106 @@
-from flask import Blueprint, request
+﻿from flask import Blueprint, request, current_app
 from flask_jwt_extended import get_jwt_identity, get_jwt
 from app.attendance.service import AttendanceService
 from app.leave.service import LeaveService
-from app.database.executor import StoredProcedureExecutor
-from app.middleware.jwt_required import jwt_required
+from app.database.multi_tenant_executor import MultiTenantExecutor
+from app.middleware.multi_tenant_jwt import multi_tenant_jwt_required
+from app.middleware.company_context import company_required
 from app.middleware.role_guard import role_required
 from app.utils.response import success_response, error_response
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
 
 @dashboard_bp.route('/employee-stats', methods=['GET'])
+@company_required
 @role_required('EMPLOYEE')
 def get_employee_dashboard_stats():
-    """Get dashboard stats for employee - simplified version"""
+    """Get dashboard stats for employee — attendance this month + payslip status"""
     try:
-        # Get user_id from JWT token
         user_id = get_jwt_identity()
         claims = get_jwt()
-        
-        # Get employee_id from JWT claims
         employee_id = claims.get("employee_id")
         if not employee_id:
             return error_response("Employee ID not found in token", status_code=400)
-        
-        # Get attendance date from query params (optional)
-        attendance_date = request.args.get('date')
-        if attendance_date:
-            try:
-                attendance_date = datetime.strptime(attendance_date, '%Y-%m-%d').date()
-            except ValueError:
-                return error_response("Invalid date format. Use YYYY-MM-DD", status_code=400)
-        else:
-            attendance_date = date.today()
-        
-        # Create simple attendance data without using the problematic stored procedure
-        # For employee view, we just need basic stats
-        attendance_data = {
-            "total_present": 0,
-            "total_absent": 0,
-            "total_late": 0,
-            "total_wfh": 0,
-            "total_on_leave": 0,
-            "total_employees": 1,  # Just this employee
-            "department_stats": [],
-            "recent_activity": [],
-            "weekly_trend": []
-        }
-        
-        # Get leave balance data for this employee
-        leave_result = LeaveService.get_leave_balances_by_employee(employee_id)
-        
-        # Combine the data
-        dashboard_data = {
-            "attendance": attendance_data,
-            "leave_balances": leave_result["data"] if leave_result["success"] else [],
-            "employee_id": employee_id,
-            "date": attendance_date.strftime('%Y-%m-%d')
-        }
-        
+
+        today = date.today()
+        current_month = today.month
+        current_year = today.year
+
+        # 1. Monthly attendance summary
+        attendance_data = {"days_present": 0, "days_absent": 0, "days_late": 0, "attendance_percentage": 0}
+        try:
+            params = {"year": current_year, "month": current_month, "employee_id": employee_id}
+            att_result = MultiTenantExecutor.execute_procedure('proc_get_monthly_attendance_summary', params)
+            if att_result["success"] and att_result["data"]:
+                rows = att_result["data"]
+                row = rows[0] if isinstance(rows, list) and rows else rows
+                if isinstance(row, dict):
+                    present = row.get("days_present", 0) or 0
+                    working = row.get("working_days", 0) or row.get("total_working_days", 0) or 0
+                    attendance_data = {
+                        "days_present": present,
+                        "days_absent": row.get("days_absent", 0) or 0,
+                        "days_late": row.get("days_late", 0) or 0,
+                        "attendance_percentage": round((present / working * 100), 1) if working > 0 else 0
+                    }
+        except Exception:
+            pass
+
+        # 2. Latest payslip status (check if employee has any payslips)
+        payslip_status = {"available": False, "period_name": None, "period_id": None}
+        try:
+            current_app.logger.info(f"Checking payslip for employee_id: {employee_id}")
+            
+            # Query to get the latest payslip for this employee from employee_payroll_summary
+            query = """
+                SELECT TOP 1 
+                    eps.period_id,
+                    pp.period_name,
+                    pp.end_date,
+                    pp.status
+                FROM employee_payroll_summary eps
+                INNER JOIN payroll_periods pp ON eps.period_id = pp.period_id
+                WHERE eps.employee_id = ?
+                    AND pp.status IN ('PROCESSED', 'PAID', 'COMPLETED')
+                ORDER BY pp.end_date DESC
+            """
+            result = MultiTenantExecutor.execute_query(query, (employee_id,))
+            
+            current_app.logger.info(f"Payslip query result: {result}")
+            
+            if result["success"] and result["data"] and len(result["data"]) > 0:
+                latest = result["data"][0]
+                current_app.logger.info(f"Found payslip: {latest}")
+                payslip_status = {
+                    "available": True,
+                    "period_name": latest.get("period_name", ""),
+                    "period_id": latest.get("period_id")
+                }
+            else:
+                current_app.logger.warning(f"No payslips found for employee {employee_id}")
+        except Exception as e:
+            current_app.logger.error(f"Error fetching payslip status: {str(e)}")
+            import traceback
+            current_app.logger.error(traceback.format_exc())
+
         return success_response(
-            message="Employee dashboard data retrieved successfully",
-            data=dashboard_data
+            message="Employee dashboard stats retrieved successfully",
+            data={
+                "attendance": attendance_data,
+                "payslip_status": payslip_status,
+                "month": current_month,
+                "year": current_year
+            }
         )
-        
+
     except Exception as e:
         return error_response(f"Failed to retrieve employee dashboard data: {str(e)}", status_code=500)
 
 
 @dashboard_bp.route('/manager-stats', methods=['GET'])
+@company_required
 @role_required('MANAGER')
 def get_manager_dashboard_stats():
     """Get dashboard stats for Manager"""
@@ -113,7 +144,8 @@ def get_manager_dashboard_stats():
 
 
 @dashboard_bp.route('/recent-activities', methods=['GET'])
-@jwt_required
+@company_required
+@multi_tenant_jwt_required
 def get_recent_activities():
     """Get recent activities for dashboard"""
     try:
@@ -156,7 +188,8 @@ def get_recent_activities():
 
 
 @dashboard_bp.route('/holidays', methods=['GET'])
-@role_required('EMPLOYEE')  # Allow all authenticated users (EMPLOYEE, HR, MANAGER)
+@company_required
+@multi_tenant_jwt_required
 def get_public_holidays():
     """Get public holidays for dashboard - accessible to all authenticated users"""
     try:
@@ -181,6 +214,7 @@ def get_public_holidays():
         return error_response(f"Failed to retrieve public holidays: {str(e)}", status_code=500)
 
 @dashboard_bp.route('/hr-stats', methods=['GET'])
+@company_required
 @role_required('HR')
 def get_hr_dashboard_statistics():
     """Get dashboard stats for HR with real data"""
@@ -198,7 +232,7 @@ def get_hr_dashboard_statistics():
         # Get statistics using the attendance dashboard procedure
         try:
             # Get total active employees
-            total_employees_result = StoredProcedureExecutor.execute_procedure('proc_get_employee_list')
+            total_employees_result = MultiTenantExecutor.execute_procedure('proc_get_employee_list')
             total_employees = len(total_employees_result["data"]) if total_employees_result["success"] else 0
             
             # Get attendance dashboard data (includes present count)
@@ -208,36 +242,30 @@ def get_hr_dashboard_statistics():
             )
             
             present_today = 0
+            on_leave_today = 0
             attendance_percentage = 0.0
-            
+
             if attendance_result["success"] and attendance_result["data"]:
-                # The procedure returns data wrapped in a dict
-                summary_data = attendance_result["data"]
-                
-                # Check if it's already a dict with the data we need
-                if isinstance(summary_data, dict):
-                    present_today = summary_data.get("total_present", 0)
-                    total_from_attendance = summary_data.get("total_employees", total_employees)
-                    
-                    # Use the total from attendance if it's more accurate
-                    if total_from_attendance > 0:
-                        attendance_percentage = (present_today / total_from_attendance) * 100
-                    elif total_employees > 0:
-                        attendance_percentage = (present_today / total_employees) * 100
-                elif isinstance(summary_data, list) and len(summary_data) > 0:
-                    # Fallback: if it's a list, get first element
-                    first_result = summary_data[0]
-                    
-                    if isinstance(first_result, dict):
-                        present_today = first_result.get("total_present", 0)
-                        total_from_attendance = first_result.get("total_employees", total_employees)
-                        
-                        # Use the total from attendance if it's more accurate
-                        if total_from_attendance > 0:
-                            attendance_percentage = (present_today / total_from_attendance) * 100
-                        elif total_employees > 0:
-                            attendance_percentage = (present_today / total_employees) * 100
-            
+                d = attendance_result["data"]
+                if isinstance(d, dict):
+                    present_today  = d.get("total_present", 0)
+                    on_leave_today = d.get("total_on_leave", 0)
+                    # Only use attendance proc's total if our employee list query failed
+                    if total_employees == 0:
+                        total_employees = d.get("total_employees", 0)
+                elif isinstance(d, list) and d and isinstance(d[0], dict):
+                    present_today  = d[0].get("total_present", 0)
+                    on_leave_today = d[0].get("total_on_leave", 0)
+                    if total_employees == 0:
+                        total_employees = d[0].get("total_employees", 0)
+
+            # Attendance % = present / (total - on_leave) so on-leave don't drag it down
+            denominator = total_employees - on_leave_today
+            if denominator > 0:
+                attendance_percentage = (present_today / denominator) * 100
+            elif total_employees > 0:
+                attendance_percentage = (present_today / total_employees) * 100
+
             # Get pending leave approvals
             pending_approvals = 0
             try:
@@ -246,11 +274,13 @@ def get_hr_dashboard_statistics():
                     pending_approvals = len(pending_leaves_result["data"])
             except Exception:
                 pending_approvals = 0
-            
+
             dashboard_data = {
                 "total_employees": total_employees,
                 "present_today": present_today,
-                "attendance_percentage": round(attendance_percentage, 1),
+                "on_leave_today": on_leave_today,
+                "absent_today": max(0, total_employees - present_today - on_leave_today),
+                "attendance_percentage": round(min(attendance_percentage, 100.0), 1),
                 "pending_approvals": pending_approvals,
                 "payroll_amount": "0",
                 "report_date": report_date.strftime('%Y-%m-%d')
@@ -271,6 +301,8 @@ def get_hr_dashboard_statistics():
             dashboard_data = {
                 "total_employees": 0,
                 "present_today": 0,
+                "on_leave_today": 0,
+                "absent_today": 0,
                 "attendance_percentage": 0.0,
                 "pending_approvals": 0,
                 "payroll_amount": "0",
@@ -290,58 +322,229 @@ def get_hr_dashboard_statistics():
         return error_response(f"Failed to retrieve HR dashboard statistics: {str(e)}", status_code=500)
 
 
+
+
 @dashboard_bp.route('/hr-recent-activities', methods=['GET'])
+@company_required
 @role_required('HR')
 def get_hr_recent_activities():
-    """Get recent activities for HR dashboard"""
+    """Get recent activities for HR dashboard — real data from leaves and employees"""
     try:
-        # Get limit from query params (optional, defaults to 10)
         limit = request.args.get('limit', 5, type=int)
-        
-        # For now, return sample activities until we have real data
-        # This will be replaced with real database queries later
-        sample_activities = [
-            {
-                "type": "LEAVE_APPROVED",
-                "description": "Leave request approved",
-                "employee_name": "Test Employee",
-                "date": date.today().strftime('%Y-%m-%d'),
-                "time": "14:30"
-            },
-            {
-                "type": "EMPLOYEE_ADDED", 
-                "description": "New employee joined",
-                "employee_name": "New Employee",
-                "date": (date.today()).strftime('%Y-%m-%d'),
-                "time": "10:15"
-            }
-        ]
-        
-        # Try to get real recent activities from leave requests
         activities = []
+
+        # 1. Recent leave requests (pending + recently approved/rejected)
         try:
-            # Get recent leave approvals
-            recent_leaves_result = LeaveService.get_pending_leaves("HR")
-            if recent_leaves_result["success"]:
-                for leave in recent_leaves_result["data"][:limit]:
+            leaves_result = LeaveService.get_pending_leaves("HR")
+            if leaves_result["success"] and leaves_result["data"]:
+                for leave in leaves_result["data"][:limit]:
                     activities.append({
                         "type": "LEAVE_PENDING",
-                        "description": f"Leave request pending approval",
+                        "description": f"{leave.get('leave_name', 'Leave')} request pending approval",
                         "employee_name": leave.get("employee_name", "Unknown"),
-                        "date": leave.get("start_date", date.today().strftime('%Y-%m-%d')),
-                        "time": "09:00"
+                        "date": str(leave.get("applied_on") or leave.get("start_date") or date.today()),
+                        "time": "—",
+                        "meta": f"{leave.get('start_date', '')} → {leave.get('end_date', '')}"
                     })
         except Exception:
             pass
-        
-        # If no real activities, use sample data
-        if not activities:
-            activities = sample_activities[:limit]
-        
+
+        # 2. Recent attendance check-ins from dashboard data
+        try:
+            att_result = AttendanceService.get_attendance_dashboard_data(
+                attendance_date=date.today(), employee_id=None
+            )
+            if att_result["success"] and att_result["data"]:
+                recent = att_result["data"].get("recent_activity", [])
+                for entry in recent[:max(0, limit - len(activities))]:
+                    activities.append({
+                        "type": "ATTENDANCE",
+                        "description": f"Checked in — {entry.get('status', 'PRESENT')}",
+                        "employee_name": entry.get("employee_name", "Unknown"),
+                        "date": date.today().strftime('%Y-%m-%d'),
+                        "time": entry.get("time", "—"),
+                        "meta": ""
+                    })
+        except Exception:
+            pass
+
+        # 3. Recently added employees — max 2, only if activities list is still short
+        try:
+            if len(activities) < limit:
+                from app.database.multi_tenant_executor import MultiTenantExecutor
+                emp_result = MultiTenantExecutor.execute_procedure('proc_get_employee_list', {})
+                if emp_result["success"] and emp_result["data"]:
+                    recent_emps = sorted(
+                        emp_result["data"],
+                        key=lambda e: str(e.get("date_of_joining") or ""),
+                        reverse=True
+                    )[:min(2, limit - len(activities))]  # cap at 2
+                    for emp in recent_emps:
+                        activities.append({
+                            "type": "EMPLOYEE_ADDED",
+                            "description": "New employee onboarded",
+                            "employee_name": emp.get("employee_name") or f"{emp.get('first_name','')} {emp.get('last_name','')}".strip(),
+                            "date": str(emp.get("date_of_joining") or date.today()),
+                            "time": "—",
+                            "meta": emp.get("department", "")
+                        })
+        except Exception:
+            pass
+
         return success_response(
             message="Recent activities retrieved successfully",
-            data={"activities": activities}
+            data={"activities": activities[:limit]}
         )
-        
+
     except Exception as e:
         return error_response(f"Failed to retrieve recent activities: {str(e)}", status_code=500)
+
+
+@dashboard_bp.route('/hr-alerts', methods=['GET'])
+@company_required
+@role_required('HR')
+def get_hr_alerts():
+    """Get actionable alerts for HR dashboard â€” pending leaves, payroll status, offboarding"""
+    try:
+        alerts = []
+        today = date.today()
+
+        # 1. Pending leave approvals
+        try:
+            pending_leaves = LeaveService.get_pending_leaves("HR")
+            count = len(pending_leaves["data"]) if pending_leaves["success"] else 0
+            if count > 0:
+                alerts.append({
+                    "type": "warning",
+                    "module": "leave",
+                    "message": f"{count} leave request{'s' if count > 1 else ''} pending approval",
+                    "action_label": "Review",
+                    "action_path": "/leave"
+                })
+        except Exception:
+            pass
+
+        # 2. Payroll not processed for current month
+        try:
+            current_month = today.month
+            current_year = today.year
+            result = MultiTenantExecutor.execute_procedure('proc_get_payroll_periods', {})
+            if result["success"] and result["data"]:
+                from datetime import datetime as dt
+                periods = result["data"] if not isinstance(result["data"][0], list) else result["data"][0]
+                month_processed = any(
+                    p.get("status") in ("PROCESSED", "PAID") and
+                    str(p.get("period_name", "")).find(f"{current_year}") != -1 and
+                    (
+                        (hasattr(p.get("start_date"), "month") and p["start_date"].month == current_month) or
+                        (isinstance(p.get("start_date"), str) and f"-{current_month:02d}-" in p["start_date"])
+                    )
+                    for p in periods
+                )
+                if not month_processed:
+                    month_name = today.strftime("%B")
+                    alerts.append({
+                        "type": "error",
+                        "module": "payroll",
+                        "message": f"Payroll not processed for {month_name} {current_year}",
+                        "action_label": "Process",
+                        "action_path": "/payroll"
+                    })
+        except Exception:
+            pass
+
+        # 3. Pending offboarding clearances
+        try:
+            from app.offboarding.service import OffboardingService
+            exits = OffboardingService.get_all_exits()
+            if exits["success"]:
+                pending_exits = [e for e in (exits["data"] or []) if e.get("status") not in ("COMPLETED", "CANCELLED")]
+                if pending_exits:
+                    alerts.append({
+                        "type": "warning",
+                        "module": "offboarding",
+                        "message": f"{len(pending_exits)} exit{'s' if len(pending_exits) > 1 else ''} pending clearance",
+                        "action_label": "View",
+                        "action_path": "/offboarding"
+                    })
+        except Exception:
+            pass
+
+        # 4. Employees with no attendance today (only on weekdays)
+        try:
+            if today.weekday() < 5:  # Mon-Fri only
+                attendance_result = AttendanceService.get_attendance_dashboard_data(
+                    attendance_date=today, employee_id=None
+                )
+                if attendance_result["success"] and attendance_result["data"]:
+                    data = attendance_result["data"]
+                    total = data.get("total_employees", 0)
+                    present = data.get("total_present", 0)
+                    absent = total - present - data.get("total_on_leave", 0)
+                    if absent > 0:
+                        alerts.append({
+                            "type": "info",
+                            "module": "attendance",
+                            "message": f"{absent} employee{'s' if absent > 1 else ''} not marked present today",
+                            "action_label": "View",
+                            "action_path": "/attendance"
+                        })
+        except Exception:
+            pass
+
+        return success_response(
+            message="HR alerts retrieved successfully",
+            data={"alerts": alerts, "count": len(alerts)}
+        )
+
+    except Exception as e:
+        return error_response(f"Failed to retrieve HR alerts: {str(e)}", status_code=500)
+
+
+@dashboard_bp.route('/hr-attendance-trend', methods=['GET'])
+@company_required
+@role_required('HR')
+def get_hr_attendance_trend():
+    """Get last 7 days attendance trend for HR dashboard chart"""
+    try:
+        today = date.today()
+        trend = []
+
+        for i in range(6, -1, -1):
+            day = today - timedelta(days=i)
+            # Skip weekends
+            if day.weekday() >= 5:
+                continue
+            try:
+                result = AttendanceService.get_attendance_dashboard_data(
+                    attendance_date=day, employee_id=None
+                )
+                present = 0
+                total = 0
+                if result["success"] and result["data"]:
+                    d = result["data"]
+                    present = d.get("total_present", 0)
+                    total = d.get("total_employees", 0)
+                trend.append({
+                    "date": day.strftime("%Y-%m-%d"),
+                    "day": day.strftime("%a"),
+                    "present": present,
+                    "total": total,
+                    "percentage": round((present / total * 100), 1) if total > 0 else 0
+                })
+            except Exception:
+                trend.append({
+                    "date": day.strftime("%Y-%m-%d"),
+                    "day": day.strftime("%a"),
+                    "present": 0,
+                    "total": 0,
+                    "percentage": 0
+                })
+
+        return success_response(
+            message="Attendance trend retrieved successfully",
+            data={"trend": trend}
+        )
+
+    except Exception as e:
+        return error_response(f"Failed to retrieve attendance trend: {str(e)}", status_code=500)

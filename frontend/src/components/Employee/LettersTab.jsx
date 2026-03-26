@@ -1,259 +1,134 @@
+import { useState, useEffect } from 'react';
 import {
-    Box,
-    Typography,
-    Paper,
-    Grid,
-    Card,
-    CardContent,
-    Button,
-    Chip,
-    Avatar,
-    Divider,
+    Box, Typography, Paper, Grid, Divider,
+    Button, Chip, CircularProgress, Alert,
 } from '@mui/material';
 import {
-    Description as LetterIcon,
-    Download as DownloadIcon,
-    Visibility as ViewIcon,
-    CheckCircle as CheckIcon,
-    Schedule as PendingIcon,
-    Cancel as CancelIcon,
+    Description as LetterIcon, Download as DownloadIcon,
+    Visibility as ViewIcon, CalendarToday as DateIcon,
+    Category as CategoryIcon, Badge as RefIcon,
 } from '@mui/icons-material';
+import documentService from '../../services/documentService';
+import { generateLetterPDF } from '../../utils/generateLetterPDF';
 
-const LetterCard = ({ letter }) => {
-    const getStatusIcon = (status) => {
-        switch (status.toLowerCase()) {
-            case 'issued':
-                return <CheckIcon sx={{ color: 'success.main' }} />;
-            case 'pending':
-                return <PendingIcon sx={{ color: 'warning.main' }} />;
-            case 'cancelled':
-                return <CancelIcon sx={{ color: 'error.main' }} />;
-            default:
-                return <LetterIcon sx={{ color: 'primary.main' }} />;
-        }
-    };
+const InfoItem = ({ icon, label, value }) => (
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, mb: 2 }}>
+        <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'primary.light', color: 'primary.main', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {icon}
+        </Box>
+        <Box sx={{ flex: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {label}
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 500, mt: 0.5 }}>{value || '-'}</Typography>
+        </Box>
+    </Box>
+);
 
-    const getStatusColor = (status) => {
-        switch (status.toLowerCase()) {
-            case 'issued':
-                return 'success';
-            case 'pending':
-                return 'warning';
-            case 'cancelled':
-                return 'error';
-            default:
-                return 'primary';
-        }
-    };
-
-    return (
-        <Card sx={{ height: '100%', '&:hover': { boxShadow: 4 }, transition: 'box-shadow 0.3s' }}>
-            <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, mb: 2 }}>
-                    <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main' }}>
-                        <LetterIcon />
-                    </Avatar>
-                    <Box sx={{ flex: 1 }}>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
-                            {letter.title}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                            {letter.description}
-                        </Typography>
-                        <Chip 
-                            label={letter.status} 
-                            color={getStatusColor(letter.status)}
-                            size="small"
-                            icon={getStatusIcon(letter.status)}
-                            sx={{ fontWeight: 500 }}
-                        />
-                    </Box>
-                </Box>
-
-                <Divider sx={{ my: 2 }} />
-
-                <Box sx={{ mb: 2 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        Issue Date: {letter.issueDate}
-                    </Typography>
-                    {letter.validUntil && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                            Valid Until: {letter.validUntil}
-                        </Typography>
-                    )}
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        Reference: {letter.reference}
-                    </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<ViewIcon />}
-                        size="small"
-                        fullWidth
-                        disabled={letter.status.toLowerCase() !== 'issued'}
-                    >
-                        View
-                    </Button>
-                    <Button
-                        variant="contained"
-                        startIcon={<DownloadIcon />}
-                        size="small"
-                        fullWidth
-                        disabled={letter.status.toLowerCase() !== 'issued'}
-                    >
-                        Download
-                    </Button>
-                </Box>
-            </CardContent>
-        </Card>
-    );
-};
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
 const LettersTab = ({ employee }) => {
-    if (!employee) return null;
+    const [letters, setLetters] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError]     = useState('');
 
-    // Mock letters data
-    const letters = [
-        {
-            id: 1,
-            title: 'Offer Letter',
-            description: 'Official job offer letter with terms and conditions of employment',
-            status: 'Issued',
-            issueDate: 'March 10, 2022',
-            validUntil: null,
-            reference: 'OL-2022-001'
-        },
-        {
-            id: 2,
-            title: 'Appointment Letter',
-            description: 'Formal appointment confirmation letter',
-            status: 'Issued',
-            issueDate: 'March 15, 2022',
-            validUntil: null,
-            reference: 'AL-2022-001'
-        },
-        {
-            id: 3,
-            title: 'Salary Certificate',
-            description: 'Certificate stating current salary and employment details',
-            status: 'Issued',
-            issueDate: 'December 1, 2025',
-            validUntil: 'December 1, 2026',
-            reference: 'SC-2025-045'
-        },
-        {
-            id: 4,
-            title: 'Experience Letter',
-            description: 'Letter certifying work experience and performance',
-            status: 'Pending',
-            issueDate: 'Pending approval',
-            validUntil: null,
-            reference: 'EL-2025-012'
-        },
-        {
-            id: 5,
-            title: 'No Objection Certificate',
-            description: 'NOC for higher education or other purposes',
-            status: 'Issued',
-            issueDate: 'November 15, 2025',
-            validUntil: 'November 15, 2026',
-            reference: 'NOC-2025-089'
-        },
-        {
-            id: 6,
-            title: 'Relieving Letter',
-            description: 'Letter to be issued upon resignation acceptance',
-            status: 'Pending',
-            issueDate: 'Not applicable',
-            validUntil: null,
-            reference: 'RL-PENDING'
+    useEffect(() => {
+        if (!employee?.employee_id) return;
+        const load = async () => {
+            setLoading(true); setError('');
+            try {
+                const res = await documentService.getAllLetters(employee.employee_id);
+                if (res?.success) setLetters(Array.isArray(res.data) ? res.data : []);
+                else setError('Failed to load letters');
+            } catch { setError('Failed to load letters'); }
+            finally { setLoading(false); }
+        };
+        load();
+    }, [employee]);
+
+    const handleView = (letter, download = false) => {
+        if (letter.letter_content) {
+            generateLetterPDF(letter.letter_content, letter.template_name || 'Letter', download);
         }
-    ];
+    };
 
-    const issuedLetters = letters.filter(letter => letter.status.toLowerCase() === 'issued');
-    const pendingLetters = letters.filter(letter => letter.status.toLowerCase() === 'pending');
+    if (!employee) return null;
 
     return (
         <Box sx={{ mt: 3 }}>
-            {/* Summary Cards */}
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid item xs={12} sm={4}>
-                    <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
-                        <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
-                            {issuedLetters.length}
-                        </Typography>
-                        <Typography variant="body2">
-                            Issued Letters
-                        </Typography>
-                    </Paper>
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                    <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
-                        <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
-                            {pendingLetters.length}
-                        </Typography>
-                        <Typography variant="body2">
-                            Pending Letters
-                        </Typography>
-                    </Paper>
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                    <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-                        <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
-                            {letters.length}
-                        </Typography>
-                        <Typography variant="body2">
-                            Total Letters
-                        </Typography>
-                    </Paper>
-                </Grid>
-            </Grid>
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-            {/* Issued Letters */}
-            {issuedLetters.length > 0 && (
-                <Box sx={{ mb: 4 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 3, color: 'success.main' }}>
-                        Issued Letters ({issuedLetters.length})
-                    </Typography>
-                    <Grid container spacing={3}>
-                        {issuedLetters.map((letter) => (
-                            <Grid item xs={12} sm={6} md={4} key={letter.id}>
-                                <LetterCard letter={letter} />
-                            </Grid>
-                        ))}
-                    </Grid>
-                </Box>
-            )}
-
-            {/* Pending Letters */}
-            {pendingLetters.length > 0 && (
-                <Box sx={{ mb: 4 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 3, color: 'warning.main' }}>
-                        Pending Letters ({pendingLetters.length})
-                    </Typography>
-                    <Grid container spacing={3}>
-                        {pendingLetters.map((letter) => (
-                            <Grid item xs={12} sm={6} md={4} key={letter.id}>
-                                <LetterCard letter={letter} />
-                            </Grid>
-                        ))}
-                    </Grid>
-                </Box>
-            )}
-
-            {/* Empty State */}
-            {letters.length === 0 && (
-                <Paper sx={{ p: 6, textAlign: 'center' }}>
-                    <LetterIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                    <Typography variant="h6" color="text.secondary" gutterBottom>
-                        No letters available
-                    </Typography>
+            {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
+            ) : letters.length === 0 ? (
+                <Paper sx={{ p: 4, textAlign: 'center' }}>
+                    <LetterIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
+                    <Typography variant="h6" color="text.secondary" gutterBottom>No letters generated yet</Typography>
                     <Typography variant="body2" color="text.secondary">
-                        Letters will appear here once they are generated
+                        Generate letters from Documents → Generate Letter
                     </Typography>
                 </Paper>
+            ) : (
+                <>
+                    {/* Summary */}
+                    <Paper sx={{ p: 4, mb: 3 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 3, color: 'primary.main' }}>
+                            Letters Summary
+                        </Typography>
+                        <Grid container spacing={4}>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <InfoItem icon={<LetterIcon />} label="Total Letters" value={letters.length} />
+                            </Grid>
+                        </Grid>
+                    </Paper>
+
+                    {/* Letter Cards */}
+                    <Paper sx={{ p: 4 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 3, color: 'primary.main' }}>
+                            All Letters
+                        </Typography>
+                        <Grid container spacing={3}>
+                            {letters.map((letter, i) => (
+                                <Grid size={{ xs: 12, md: 6 }} key={letter.letter_id || i}>
+                                    <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                                            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'primary.light', color: 'primary.main', display: 'flex' }}>
+                                                <LetterIcon />
+                                            </Box>
+                                            <Typography variant="subtitle1" fontWeight={600}>
+                                                {letter.template_name || letter.letter_type || 'Letter'}
+                                            </Typography>
+                                        </Box>
+
+                                        <InfoItem icon={<DateIcon />}     label="Generated On" value={fmt(letter.generated_at || letter.created_at)} />
+                                        {letter.template_category && (
+                                            <InfoItem icon={<CategoryIcon />} label="Category" value={letter.template_category} />
+                                        )}
+
+                                        <Divider sx={{ my: 1.5 }} />
+
+                                        <Box sx={{ display: 'flex', gap: 1 }}>
+                                            <Button
+                                                variant="outlined" startIcon={<ViewIcon />} size="small" fullWidth
+                                                onClick={() => handleView(letter)}
+                                                disabled={!letter.letter_content}
+                                            >
+                                                View
+                                            </Button>
+                                            <Button
+                                                variant="contained" startIcon={<DownloadIcon />} size="small" fullWidth
+                                                onClick={() => handleView(letter, true)}
+                                                disabled={!letter.letter_content}
+                                            >
+                                                Download
+                                            </Button>
+                                        </Box>
+                                    </Paper>
+                                </Grid>
+                            ))}
+                        </Grid>
+                    </Paper>
+                </>
             )}
         </Box>
     );

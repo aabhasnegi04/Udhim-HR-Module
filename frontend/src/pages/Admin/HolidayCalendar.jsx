@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import adminService from '../../services/adminService';
+import AppDatePicker from '../../components/common/AppDatePicker';
 import {
     Box,
     Typography,
@@ -43,6 +44,10 @@ const HolidayCalendar = () => {
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [openDialog, setOpenDialog] = useState(false);
+    const [openUploadDialog, setOpenUploadDialog] = useState(false);
+    const [uploadFile, setUploadFile] = useState(null);
+    const [uploadProgress, setUploadProgress] = useState(false);
+    const [uploadResult, setUploadResult] = useState(null);
     const [editHoliday, setEditHoliday] = useState(null);
     const [holidays, setHolidays] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -186,6 +191,77 @@ const HolidayCalendar = () => {
         });
     };
 
+    const handleDownloadTemplate = async () => {
+        try {
+            setLoading(true);
+            const result = await adminService.downloadHolidayTemplate();
+            if (result.success) {
+                setSuccess('Template downloaded successfully');
+            } else {
+                setError(result.error || 'Failed to download template');
+            }
+        } catch (error) {
+            setError('Failed to download template');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleOpenUploadDialog = () => {
+        setUploadFile(null);
+        setUploadResult(null);
+        setOpenUploadDialog(true);
+    };
+
+    const handleCloseUploadDialog = () => {
+        setOpenUploadDialog(false);
+        setUploadFile(null);
+        setUploadResult(null);
+    };
+
+    const handleFileSelect = (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+                setError('Please select an Excel file (.xlsx or .xls)');
+                return;
+            }
+            setUploadFile(file);
+        }
+    };
+
+    const handleBulkUpload = async () => {
+        if (!uploadFile) {
+            setError('Please select a file');
+            return;
+        }
+
+        try {
+            setUploadProgress(true);
+            const result = await adminService.bulkUploadHolidays(uploadFile);
+            
+            if (result.success) {
+                setUploadResult(result.data);
+                setSuccess(result.message || 'Holidays uploaded successfully');
+                loadHolidays(); // Reload holidays
+                
+                // Close dialog after 3 seconds if all succeeded
+                if (result.data.failed === 0) {
+                    setTimeout(() => {
+                        handleCloseUploadDialog();
+                    }, 3000);
+                }
+            } else {
+                setUploadResult(result.data);
+                setError(result.error || 'Upload failed');
+            }
+        } catch (error) {
+            setError('Failed to upload file');
+        } finally {
+            setUploadProgress(false);
+        }
+    };
+
     return (
         <Box>
             <Alert severity="warning" sx={{ mb: 3 }}>
@@ -241,12 +317,16 @@ const HolidayCalendar = () => {
                     <Button
                         variant="outlined"
                         startIcon={<UploadIcon />}
+                        onClick={handleOpenUploadDialog}
+                        disabled={loading}
                     >
                         Upload Excel
                     </Button>
                     <Button
                         variant="outlined"
                         startIcon={<DownloadIcon />}
+                        onClick={handleDownloadTemplate}
+                        disabled={loading}
                     >
                         Download Template
                     </Button>
@@ -397,13 +477,10 @@ const HolidayCalendar = () => {
                             onChange={(e) => handleFormChange('holiday_name', e.target.value)}
                             required
                         />
-                        <TextField
+                        <AppDatePicker
                             label="Date"
-                            type="date"
-                            fullWidth
-                            InputLabelProps={{ shrink: true }}
                             value={formData.holiday_date || ''}
-                            onChange={(e) => handleFormChange('holiday_date', e.target.value)}
+                            onChange={(v) => handleFormChange('holiday_date', v)}
                             required
                         />
                         <FormControl fullWidth>
@@ -437,6 +514,94 @@ const HolidayCalendar = () => {
                         disabled={loading}
                     >
                         {loading ? <CircularProgress size={20} /> : (editHoliday ? 'Update' : 'Create')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Bulk Upload Dialog */}
+            <Dialog open={openUploadDialog} onClose={handleCloseUploadDialog} maxWidth="md" fullWidth>
+                <DialogTitle>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <UploadIcon />
+                        Bulk Upload Holidays
+                    </Box>
+                </DialogTitle>
+                <DialogContent>
+                    <Stack spacing={3} sx={{ mt: 1 }}>
+                        <Alert severity="info">
+                            Download the template, fill in holiday details, and upload the Excel file.
+                        </Alert>
+
+                        <Box sx={{ 
+                            border: '2px dashed', 
+                            borderColor: 'primary.main', 
+                            borderRadius: 2, 
+                            p: 3, 
+                            textAlign: 'center',
+                            bgcolor: 'background.paper'
+                        }}>
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls"
+                                onChange={handleFileSelect}
+                                style={{ display: 'none' }}
+                                id="holiday-upload-file"
+                            />
+                            <label htmlFor="holiday-upload-file">
+                                <Button
+                                    variant="outlined"
+                                    component="span"
+                                    startIcon={<UploadIcon />}
+                                    disabled={uploadProgress}
+                                >
+                                    Select Excel File
+                                </Button>
+                            </label>
+                            {uploadFile && (
+                                <Typography variant="body2" sx={{ mt: 2, color: 'success.main' }}>
+                                    Selected: {uploadFile.name}
+                                </Typography>
+                            )}
+                        </Box>
+
+                        {uploadResult && (
+                            <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
+                                <Typography variant="subtitle2" gutterBottom>
+                                    Upload Results:
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 3, mb: 2 }}>
+                                    <Chip label={`Total: ${uploadResult.total}`} color="primary" />
+                                    <Chip label={`Success: ${uploadResult.success}`} color="success" />
+                                    <Chip label={`Failed: ${uploadResult.failed}`} color="error" />
+                                </Box>
+
+                                {uploadResult.errors && uploadResult.errors.length > 0 && (
+                                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
+                                        <Typography variant="caption" color="error" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                                            Errors:
+                                        </Typography>
+                                        {uploadResult.errors.map((err, idx) => (
+                                            <Typography key={idx} variant="caption" color="error" sx={{ display: 'block', mb: 0.5 }}>
+                                                Row {err.row} ({err.holiday_name}): {err.error}
+                                            </Typography>
+                                        ))}
+                                    </Box>
+                                )}
+                            </Paper>
+                        )}
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseUploadDialog} disabled={uploadProgress}>
+                        Close
+                    </Button>
+                    <Button 
+                        variant="contained" 
+                        onClick={handleBulkUpload}
+                        disabled={!uploadFile || uploadProgress}
+                        startIcon={uploadProgress ? <CircularProgress size={16} /> : <UploadIcon />}
+                    >
+                        {uploadProgress ? 'Uploading...' : 'Upload'}
                     </Button>
                 </DialogActions>
             </Dialog>

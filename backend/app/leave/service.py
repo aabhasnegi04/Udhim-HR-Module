@@ -1,5 +1,5 @@
 from flask import current_app
-from app.database.executor import StoredProcedureExecutor
+from app.database.multi_tenant_executor import MultiTenantExecutor
 from datetime import datetime, date
 
 
@@ -14,7 +14,7 @@ class LeaveService:
     def get_leave_types():
         """Get all active leave types"""
         try:
-            result = StoredProcedureExecutor.execute_procedure('proc_list_leave_types')
+            result = MultiTenantExecutor.execute_procedure('proc_list_leave_types')
             
             if result["success"]:
                 return {
@@ -42,7 +42,7 @@ class LeaveService:
         """Get leave types appropriate for a specific employee based on gender"""
         try:
             # First get all leave types
-            result = StoredProcedureExecutor.execute_procedure('proc_list_leave_types')
+            result = MultiTenantExecutor.execute_procedure('proc_list_leave_types')
             
             if not result["success"]:
                 return {
@@ -52,7 +52,7 @@ class LeaveService:
                 }
             
             # Get employee gender
-            emp_result = StoredProcedureExecutor.execute_procedure('proc_get_employee_profile', {'employee_id': employee_id})
+            emp_result = MultiTenantExecutor.execute_procedure('proc_get_employee_profile', {'employee_id': employee_id})
             
             if not emp_result["success"] or not emp_result["data"]:
                 # If we can't get employee data, return all leave types (fallback)
@@ -118,7 +118,7 @@ class LeaveService:
         try:
             parameters = {'user_id': user_id}
             # Use the new procedure that allows both active and inactive employees for leave viewing
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_id_by_user_id_for_leave_view', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_employee_id_by_user_id_for_leave_view', parameters)
             
             if result["success"] and result["data"] and len(result["data"]) > 0:
                 employee_data = result["data"][0]
@@ -158,7 +158,7 @@ class LeaveService:
                 'total_allocated': balance_data.get('total_allocated')
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_allocate_leave_balance', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_allocate_leave_balance', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -199,7 +199,7 @@ class LeaveService:
                 'reason': reason
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_adjust_leave_balance', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_adjust_leave_balance', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -238,7 +238,7 @@ class LeaveService:
             if year:
                 parameters['year'] = year
             
-            result = StoredProcedureExecutor.execute_procedure('proc_get_leave_balances_by_employee', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_leave_balances_by_employee', parameters)
             
             if result["success"]:
                 return {
@@ -277,7 +277,7 @@ class LeaveService:
                 'reason': leave_data.get('reason')
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_apply_leave', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_apply_leave', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -325,7 +325,7 @@ class LeaveService:
                 'comment': comment
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_manager_approve_leave', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_manager_approve_leave', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -366,7 +366,7 @@ class LeaveService:
                 'comment': comment
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_hr_approve_leave', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_hr_approve_leave', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -408,7 +408,7 @@ class LeaveService:
                 'comment': comment
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_reject_leave', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_reject_leave', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -452,7 +452,7 @@ class LeaveService:
                 'employee_id': employee_id
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_cancel_leave', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_cancel_leave', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -495,7 +495,7 @@ class LeaveService:
             if year:
                 parameters['year'] = year
             
-            result = StoredProcedureExecutor.execute_procedure('proc_get_leaves_by_employee', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_leaves_by_employee', parameters)
             
             if result["success"]:
                 return {
@@ -526,7 +526,7 @@ class LeaveService:
             if year:
                 parameters['year'] = year
             
-            result = StoredProcedureExecutor.execute_procedure('proc_get_leaves_by_department', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_leaves_by_department', parameters)
             
             if result["success"]:
                 return {
@@ -561,7 +561,7 @@ class LeaveService:
             if status:
                 parameters['status'] = status
             
-            result = StoredProcedureExecutor.execute_procedure('proc_get_leave_register', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_leave_register', parameters)
             
             if result["success"]:
                 return {
@@ -592,7 +592,7 @@ class LeaveService:
             if approver_role:
                 parameters['approver_role'] = approver_role
             
-            result = StoredProcedureExecutor.execute_procedure('proc_get_pending_leaves', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_pending_leaves', parameters)
             
             if result["success"]:
                 return {

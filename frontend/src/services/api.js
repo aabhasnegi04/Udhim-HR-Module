@@ -34,6 +34,12 @@ class ApiService {
       headers.Authorization = `Bearer ${this.token}`;
     }
 
+    // Add company code header for multi-tenant support
+    const companyCode = import.meta.env.VITE_COMPANY_CODE;
+    if (companyCode) {
+      headers['X-Company-Code'] = companyCode;
+    }
+
     // Add current view header for profile switching
     const currentView = this.getCurrentView();
     if (currentView) {
@@ -48,8 +54,20 @@ class ApiService {
   // Get current view from profile switching context
   getCurrentView() {
     try {
+      // Check current URL path to determine appropriate view
+      const currentPath = window.location.pathname;
+      
+      // HR-specific routes should always use HR view
+      const hrRoutes = ['/payroll', '/employees', '/admin', '/dashboard'];
+      const isHRRoute = hrRoutes.some(route => currentPath.startsWith(route));
+      
       // Try to get from localStorage (where ProfileSwitchingContext stores it)
       const preferredView = localStorage.getItem('preferred_view');
+      
+      // If on HR route and no preferred view set, default to HR
+      if (isHRRoute && !preferredView) {
+        return 'HR';
+      }
       
       if (preferredView) {
         return preferredView;
@@ -64,6 +82,11 @@ class ApiService {
         if (user.profile_switching && user.profile_switching.default_view) {
           return user.profile_switching.default_view;
         }
+      }
+
+      // If on HR route, default to HR view
+      if (isHRRoute) {
+        return 'HR';
       }
 
       // Default to EMPLOYEE view

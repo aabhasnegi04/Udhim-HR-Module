@@ -1,5 +1,5 @@
 from flask import current_app
-from app.database.executor import StoredProcedureExecutor
+from app.database.multi_tenant_executor import MultiTenantExecutor
 
 
 class OrgChartService:
@@ -9,8 +9,11 @@ class OrgChartService:
     def get_organization_hierarchy():
         """Get complete organization hierarchy with manager-employee relationships"""
         try:
-            # Use existing stored procedure to get all employees
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_list')
+            # Use stored procedure to get ACTIVE employees only
+            result = MultiTenantExecutor.execute_procedure(
+                'proc_get_employee_list_with_status',
+                {'status_filter': 'ACTIVE'}
+            )
             
             if not result["success"]:
                 return {
@@ -21,8 +24,17 @@ class OrgChartService:
             
             employees = result["data"] or []
             
+            # Get designation levels from database
+            designation_levels = {}
+            try:
+                designations_result = MultiTenantExecutor.execute_procedure('proc_list_designations')
+                if designations_result["success"] and designations_result["data"]:
+                    for desig in designations_result["data"]:
+                        designation_levels[desig.get('designation_name')] = desig.get('designation_level', 10)
+            except Exception as e:
+                current_app.logger.warning(f"Could not fetch designation levels: {str(e)}")
+            
             # Transform data for org chart
-            # Since manager_id is not available, create a flat structure grouped by department
             org_data = []
             
             for emp in employees:
@@ -32,16 +44,9 @@ class OrgChartService:
                 designation = emp.get('designation')
                 department = emp.get('department')
                 
-                # Assign level based on designation keywords
-                level = 3  # Default employee level
-                designation_lower = (designation or '').lower()
-                
-                if any(word in designation_lower for word in ['ceo', 'chief', 'president', 'director']):
-                    level = 0  # CEO/Executive level
-                elif any(word in designation_lower for word in ['vp', 'vice president', 'head']):
-                    level = 1  # VP level
-                elif any(word in designation_lower for word in ['manager', 'lead', 'senior manager']):
-                    level = 2  # Manager level
+                # Get level from designation table (lower number = higher in hierarchy)
+                # Default to 10 if not found
+                level = designation_levels.get(designation, 10)
                 
                 emp_data = {
                     "id": employee_code,
@@ -76,8 +81,11 @@ class OrgChartService:
     def search_employees(search_term):
         """Search employees by name, designation, or department"""
         try:
-            # Use existing stored procedure
-            result = StoredProcedureExecutor.execute_procedure('proc_get_employee_list')
+            # Use stored procedure to get ACTIVE employees only
+            result = MultiTenantExecutor.execute_procedure(
+                'proc_get_employee_list_with_status',
+                {'status_filter': 'ACTIVE'}
+            )
             
             if not result["success"]:
                 return {

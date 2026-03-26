@@ -238,6 +238,30 @@ class EmployeeService {
     }
   }
 
+  // GET EMPLOYEE PHOTO
+  async getEmployeePhoto(employeeId) {
+    try {
+      const baseURL = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
+      const response = await fetch(`${baseURL}/employees/${employeeId}/photo?t=${Date.now()}`, {
+        method: 'GET',
+        headers: {
+          'X-Company-Code': import.meta.env.VITE_COMPANY_CODE || 'udhim',
+          'Authorization': `Bearer ${sessionStorage.getItem('hrms_token')}`,
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        return { success: true, data: URL.createObjectURL(blob) };
+      } else {
+        return { success: false, error: 'Failed to load photo' };
+      }
+    } catch (error) {
+      console.error('Get employee photo failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   // DELETE EMPLOYEE PHOTO
   async deleteEmployeePhoto(employeeId) {
     try {

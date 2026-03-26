@@ -1,486 +1,633 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import AppDatePicker from '../../components/common/AppDatePicker';
 import {
     Box,
     Typography,
     Paper,
-    Card,
-    CardContent,
     Button,
     TextField,
+    Select,
     MenuItem,
     FormControl,
-    InputLabel,
-    Select,
+    CircularProgress,
+    Alert,
     Table,
     TableBody,
     TableCell,
-    TableContainer,
-    TableHead,
     TableRow,
-    Chip,
-    Avatar,
-    IconButton,
-    Stack,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
+    Card,
+    CardContent,
     Divider,
-    Alert,
-    InputAdornment,
-    Autocomplete
+    Autocomplete,
+    Grid,
+    Stack,
+    Avatar,
+    Skeleton
 } from '@mui/material';
 import {
-    PersonAdd as AssignIcon,
-    Search as SearchIcon,
-    Edit as EditIcon,
-    Visibility as ViewIcon,
+    Person as PersonIcon,
+    Assignment as TemplateIcon,
+    Visibility as PreviewIcon,
     Save as SaveIcon,
-    Cancel as CancelIcon,
-    Refresh as RefreshIcon
+    Refresh as RefreshIcon,
+    Business as DepartmentIcon,
+    Badge as BadgeIcon
 } from '@mui/icons-material';
-
-// Mock data
-const mockEmployees = [
-    { id: 1, name: 'John Smith', employeeId: 'EMP001', department: 'Engineering', designation: 'Software Engineer', currentSalary: null },
-    { id: 2, name: 'Sarah Johnson', employeeId: 'EMP002', department: 'HR', designation: 'HR Manager', currentSalary: 75000 },
-    { id: 3, name: 'Michael Chen', employeeId: 'EMP003', department: 'Engineering', designation: 'Senior Software Engineer', currentSalary: null },
-    { id: 4, name: 'Emily Davis', employeeId: 'EMP004', department: 'Marketing', designation: 'Marketing Executive', currentSalary: 45000 },
-    { id: 5, name: 'Robert Wilson', employeeId: 'EMP005', department: 'Engineering', designation: 'Tech Lead', currentSalary: 95000 }
-];
-
-const mockSalaryStructures = [
-    { id: 1, name: 'Software Engineer - L1', monthlySalary: 60000, netPay: 50300 },
-    { id: 2, name: 'Senior Software Engineer - L2', monthlySalary: 100000, netPay: 81800 },
-    { id: 3, name: 'Manager - M1', monthlySalary: 150000, netPay: 120800 },
-    { id: 4, name: 'HR Manager - H1', monthlySalary: 80000, netPay: 65600 },
-    { id: 5, name: 'Marketing Executive - M1', monthlySalary: 50000, netPay: 42000 }
-];
-
-const mockAssignments = [
-    { id: 1, employeeId: 'EMP002', employeeName: 'Sarah Johnson', structureName: 'HR Manager - H1', monthlySalary: 80000, effectiveFrom: '2025-01-01', status: 'Active' },
-    { id: 2, employeeId: 'EMP004', employeeName: 'Emily Davis', structureName: 'Marketing Executive - M1', monthlySalary: 50000, effectiveFrom: '2024-06-01', status: 'Active' },
-    { id: 3, employeeId: 'EMP005', employeeName: 'Robert Wilson', structureName: 'Senior Software Engineer - L2', monthlySalary: 100000, effectiveFrom: '2024-03-01', status: 'Active' }
-];
+import payrollService from '../../services/payrollService';
+import employeeService from '../../services/employeeService';
 
 const AssignSalary = () => {
-    const [assignments, setAssignments] = useState(mockAssignments);
-    const [showAssignDialog, setShowAssignDialog] = useState(false);
+    const [employees, setEmployees] = useState([]);
+    const [templates, setTemplates] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+    const [success, setSuccess] = useState(null);
+    
+    // Form state
     const [selectedEmployee, setSelectedEmployee] = useState(null);
-    const [selectedStructure, setSelectedStructure] = useState(null);
-    const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
-    const [customOverrides, setCustomOverrides] = useState({});
-    const [searchTerm, setSearchTerm] = useState('');
-    const [departmentFilter, setDepartmentFilter] = useState('all');
+    const [selectedTemplate, setSelectedTemplate] = useState(null);
+    const [monthlyCTC, setMonthlyCTC] = useState('');
+    const [effectiveFrom, setEffectiveFrom] = useState('');
+    const [preview, setPreview] = useState(null);
+    const [showPreview, setShowPreview] = useState(false);
+    const debounceTimerRef = useRef(null);
 
-    const filteredEmployees = mockEmployees.filter(emp => {
-        const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.employeeId.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesDepartment = departmentFilter === 'all' || emp.department === departmentFilter;
-        return matchesSearch && matchesDepartment;
-    });
+    useEffect(() => {
+        loadData();
+    }, []);
 
-    const unassignedEmployees = filteredEmployees.filter(emp => 
-        !assignments.some(assignment => assignment.employeeId === emp.employeeId)
-    );
-
-    const handleAssignSalary = () => {
-        if (!selectedEmployee || !selectedStructure) return;
-
-        const newAssignment = {
-            id: assignments.length + 1,
-            employeeId: selectedEmployee.employeeId,
-            employeeName: selectedEmployee.name,
-            structureName: selectedStructure.name,
-            monthlySalary: selectedStructure.monthlySalary,
-            effectiveFrom: effectiveDate,
-            status: 'Active'
+    // Cleanup debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
         };
+    }, []);
 
-        setAssignments(prev => [...prev, newAssignment]);
-        setShowAssignDialog(false);
-        resetForm();
+    const loadData = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            
+            const [employeesRes, templatesRes, unassignedRes] = await Promise.all([
+                employeeService.getAllEmployees(),
+                payrollService.getSalaryStructures(),
+                payrollService.getEmployeesWithoutSalary()
+            ]);
+            
+            if (employeesRes?.success) {
+                const allEmployees = employeesRes.data || [];
+                // Filter to only show employees without an active salary assignment
+                let unassignedIds = null;
+                if (unassignedRes?.success && Array.isArray(unassignedRes.data)) {
+                    unassignedIds = new Set(unassignedRes.data.map(e => e.employee_id));
+                } else if (Array.isArray(unassignedRes)) {
+                    unassignedIds = new Set(unassignedRes.map(e => e.employee_id));
+                }
+                setEmployees(unassignedIds !== null
+                    ? allEmployees.filter(e => unassignedIds.has(e.employee_id))
+                    : allEmployees
+                );
+            }
+
+            if (Array.isArray(templatesRes)) {
+                setTemplates(templatesRes);
+            } else if (templatesRes?.success && templatesRes?.data) {
+                setTemplates(Array.isArray(templatesRes.data) ? templatesRes.data : []);
+            } else if (templatesRes?.data) {
+                setTemplates(Array.isArray(templatesRes.data) ? templatesRes.data : []);
+            } else {
+                setTemplates([]);
+            }
+        } catch (err) {
+            console.error('Load data error:', err);
+            setError('Failed to load data: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const resetForm = () => {
+    const handleGeneratePreview = async (ctcValue = null) => {
+        try {
+            // Use provided value or fall back to state
+            const ctcToUse = ctcValue !== null ? ctcValue : monthlyCTC;
+            
+            if (!selectedEmployee) {
+                setError('Please select an employee');
+                return;
+            }
+            if (!selectedTemplate) {
+                setError('Please select a salary template');
+                return;
+            }
+            if (!ctcToUse || parseFloat(ctcToUse) <= 0) {
+                setError('Please enter a valid monthly CTC');
+                return;
+            }
+
+            setError(null);
+            setLoading(true);
+
+            // Get template components
+            const componentsRes = await payrollService.getStructureComponents(selectedTemplate.structure_id);
+            
+            let components = [];
+            if (Array.isArray(componentsRes)) {
+                components = componentsRes;
+            } else if (componentsRes?.success && componentsRes?.data) {
+                components = componentsRes.data;
+            } else if (componentsRes?.data) {
+                components = componentsRes.data;
+            }
+
+            if (components.length === 0) {
+                setError('Selected template has no components');
+                setLoading(false);
+                return;
+            }
+
+            // Calculate salary breakdown
+            const ctc = parseFloat(ctcToUse);
+            let earnings = [];
+            let deductions = [];
+            let basicSalary = 0;
+
+            // First pass: Calculate all components
+            components.forEach(comp => {
+                let amount = 0;
+                
+                if (comp.calculation_type === 'FIXED') {
+                    amount = parseFloat(comp.amount || 0);
+                } else if (comp.calculation_type === 'PERCENTAGE') {
+                    const percentage = parseFloat(comp.percentage || 0);
+                    const base = comp.base_component || 'CTC';
+                    
+                    // For CTC-based calculations
+                    if (base === 'CTC') {
+                        amount = (ctc * percentage) / 100;
+                    }
+                    // BASIC and GROSS will be calculated in second pass
+                }
+
+                const item = {
+                    component_id: comp.component_id,
+                    component_name: comp.component_name,
+                    component_type: comp.component_type,
+                    component_code: comp.component_code,
+                    calculation_type: comp.calculation_type,
+                    amount: amount,
+                    percentage: comp.percentage,
+                    base_component: comp.base_component
+                };
+
+                if (comp.component_type === 'EARNING') {
+                    earnings.push(item);
+                    // Identify basic salary
+                    if (comp.component_code === 'BASIC' || comp.component_name.toLowerCase().includes('basic')) {
+                        basicSalary = amount;
+                    }
+                } else if (comp.component_type === 'DEDUCTION') {
+                    deductions.push(item);
+                }
+            });
+
+            // Calculate gross salary (sum of all earnings)
+            const grossSalary = earnings.reduce((sum, item) => sum + item.amount, 0);
+
+            // Second pass: Calculate BASIC and GROSS-based components
+            components.forEach((comp) => {
+                if (comp.calculation_type === 'PERCENTAGE') {
+                    const percentage = parseFloat(comp.percentage || 0);
+                    const base = comp.base_component || 'CTC';
+                    let amount = 0;
+
+                    if (base === 'BASIC' && basicSalary > 0) {
+                        amount = (basicSalary * percentage) / 100;
+                    } else if (base === 'GROSS' && grossSalary > 0) {
+                        amount = (grossSalary * percentage) / 100;
+                    }
+
+                    // Update the amount if it was calculated
+                    if (amount > 0) {
+                        if (comp.component_type === 'EARNING') {
+                            const index = earnings.findIndex(e => e.component_id === comp.component_id);
+                            if (index !== -1) {
+                                earnings[index].amount = amount;
+                            }
+                        } else if (comp.component_type === 'DEDUCTION') {
+                            const index = deductions.findIndex(d => d.component_id === comp.component_id);
+                            if (index !== -1) {
+                                deductions[index].amount = amount;
+                            }
+                        }
+                    }
+                }
+            });
+
+            const totalEarnings = earnings.reduce((sum, item) => sum + item.amount, 0);
+            const totalDeductions = deductions.reduce((sum, item) => sum + item.amount, 0);
+            const netSalary = totalEarnings - totalDeductions;
+
+            setPreview({
+                earnings,
+                deductions,
+                totalEarnings,
+                totalDeductions,
+                netSalary,
+                ctc
+            });
+            setShowPreview(true);
+        } catch (err) {
+            console.error('Generate preview error:', err);
+            setError('Failed to generate preview: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAssignSalary = async () => {
+        try {
+            if (!selectedEmployee || !selectedTemplate || !monthlyCTC) {
+                setError('Please fill all required fields');
+                return;
+            }
+
+            setSaving(true);
+            setError(null);
+            setSuccess(null);
+
+            const response = await payrollService.assignSalaryTemplate(
+                selectedEmployee.employee_id,
+                selectedTemplate.structure_id,
+                parseFloat(monthlyCTC),
+                effectiveFrom || null
+            );
+
+            if (response.success) {
+                setSuccess(`Salary structure assigned successfully to ${selectedEmployee.employee_name}!`);
+                // Reset form
+                setSelectedEmployee(null);
+                setSelectedTemplate(null);
+                setMonthlyCTC('');
+                setEffectiveFrom('');
+                setPreview(null);
+                setShowPreview(false);
+            } else {
+                setError(response.message || 'Failed to assign salary');
+            }
+        } catch (err) {
+            console.error('Assign salary error:', err);
+            setError('Failed to assign salary: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleReset = () => {
         setSelectedEmployee(null);
-        setSelectedStructure(null);
-        setEffectiveDate(new Date().toISOString().split('T')[0]);
-        setCustomOverrides({});
+        setSelectedTemplate(null);
+        setMonthlyCTC('');
+        setEffectiveFrom('');
+        setPreview(null);
+        setShowPreview(false);
+        setError(null);
+        setSuccess(null);
     };
 
-    const handleRemoveAssignment = (assignmentId) => {
-        setAssignments(prev => prev.filter(assignment => assignment.id !== assignmentId));
-    };
+    if (loading && employees.length === 0) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
 
     return (
-        <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-            {/* Quick Info */}
-            <Box sx={{ mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Assign Salary to Employees
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Assign salary structures to employees and manage salary assignments
-                        </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1}>
-                        <Button
-                            variant="outlined"
-                            startIcon={<RefreshIcon />}
-                            onClick={() => setAssignments(mockAssignments)}
-                            size="small"
-                        >
-                            Refresh
-                        </Button>
-                        <Button
-                            variant="contained"
-                            startIcon={<AssignIcon />}
-                            onClick={() => setShowAssignDialog(true)}
-                        >
-                            Assign Salary
-                        </Button>
-                    </Stack>
-                </Box>
+        <Box sx={{ maxWidth: 1400, margin: 'auto', p: 3 }}>
+            {/* Header */}
+            <Box sx={{ mb: 4 }}>
+                <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    Assign Salary Structure
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                    Assign salary template to employees with their monthly CTC
+                </Typography>
             </Box>
 
-            {/* Summary Cards */}
-            <Box sx={{ display: 'flex', gap: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 }, flexWrap: 'wrap' }}>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="primary.main" sx={{ fontWeight: 700 }}>
-                            {assignments.length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Assigned Employees
-                        </Typography>
-                    </CardContent>
-                </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="warning.main" sx={{ fontWeight: 700 }}>
-                            {unassignedEmployees.length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Unassigned Employees
-                        </Typography>
-                    </CardContent>
-                </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="success.main" sx={{ fontWeight: 700 }}>
-                            ₹{Math.round(assignments.reduce((sum, a) => sum + a.monthlySalary, 0) / 100000)}L
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Total Monthly Payroll
-                        </Typography>
-                    </CardContent>
-                </Card>
-            </Box>
+            {error && (
+                <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+                    {error}
+                </Alert>
+            )}
 
-            {/* Filters */}
-            <Paper sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 }, flexWrap: 'wrap' }}>
-                    <Box sx={{ flex: '1 1 250px', minWidth: '200px' }}>
-                        <TextField
-                            fullWidth
-                            placeholder="Search employees..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            size="small"
-                            InputProps={{
-                                startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                            }}
-                        />
-                    </Box>
-                    <Box sx={{ flex: '0 0 150px', minWidth: '150px' }}>
-                        <FormControl fullWidth size="small">
-                            <InputLabel>Department</InputLabel>
-                            <Select
-                                value={departmentFilter}
-                                label="Department"
-                                onChange={(e) => setDepartmentFilter(e.target.value)}
-                            >
-                                <MenuItem value="all">All Departments</MenuItem>
-                                <MenuItem value="Engineering">Engineering</MenuItem>
-                                <MenuItem value="HR">HR</MenuItem>
-                                <MenuItem value="Marketing">Marketing</MenuItem>
-                                <MenuItem value="Sales">Sales</MenuItem>
-                                <MenuItem value="Finance">Finance</MenuItem>
-                            </Select>
-                        </FormControl>
-                    </Box>
-                </Box>
-            </Paper>
+            {success && (
+                <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess(null)}>
+                    {success}
+                </Alert>
+            )}
 
-            {/* Current Assignments Table */}
-            <Paper sx={{ mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        Current Salary Assignments
-                    </Typography>
-                </Box>
-                <TableContainer>
-                    <Table>
-                        <TableHead>
-                            <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                <TableCell sx={{ fontWeight: 600 }}>Employee</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }}>Salary Structure</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }} align="right">Monthly Salary</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }}>Effective From</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {assignments.map((assignment) => (
-                                <TableRow key={assignment.id} hover>
-                                    <TableCell>
-                                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                            <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.875rem' }}>
-                                                {assignment.employeeName.charAt(0)}
-                                            </Avatar>
-                                            <Box>
-                                                <Typography variant="body2" fontWeight={600}>
-                                                    {assignment.employeeName}
-                                                </Typography>
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {assignment.employeeId}
-                                                </Typography>
-                                            </Box>
-                                        </Box>
-                                    </TableCell>
-                                    <TableCell>
-                                        <Typography variant="body2" fontWeight={500}>
-                                            {assignment.structureName}
-                                        </Typography>
-                                    </TableCell>
-                                    <TableCell align="right">
-                                        <Typography variant="body2" fontWeight={600}>
-                                            ₹{assignment.monthlySalary.toLocaleString('en-IN')}
-                                        </Typography>
-                                    </TableCell>
-                                    <TableCell>{assignment.effectiveFrom}</TableCell>
-                                    <TableCell>
-                                        <Chip
-                                            label={assignment.status}
-                                            color={assignment.status === 'Active' ? 'success' : 'default'}
-                                            size="small"
-                                        />
-                                    </TableCell>
-                                    <TableCell align="right">
-                                        <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                            <IconButton size="small">
-                                                <ViewIcon />
-                                            </IconButton>
-                                            <IconButton size="small">
-                                                <EditIcon />
-                                            </IconButton>
-                                            <IconButton 
-                                                size="small" 
-                                                color="error"
-                                                onClick={() => handleRemoveAssignment(assignment.id)}
-                                            >
-                                                <CancelIcon />
-                                            </IconButton>
-                                        </Stack>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
-            </Paper>
-
-            {/* Unassigned Employees */}
-            {unassignedEmployees.length > 0 && (
-                <Paper>
-                    <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
-                        <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                            Unassigned Employees ({unassignedEmployees.length})
-                        </Typography>
-                    </Box>
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                    <TableCell sx={{ fontWeight: 600 }}>Employee</TableCell>
-                                    <TableCell sx={{ fontWeight: 600 }}>Department</TableCell>
-                                    <TableCell sx={{ fontWeight: 600 }}>Designation</TableCell>
-                                    <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {unassignedEmployees.map((employee) => (
-                                    <TableRow key={employee.id} hover>
-                                        <TableCell>
-                                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                                <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.875rem' }}>
-                                                    {employee.name.charAt(0)}
+            <Grid container spacing={3} sx={{ alignItems: 'stretch' }}>
+                {/* Left Panel - Input Form (4 columns) */}
+                <Grid size={{ xs: 12, md: 4 }}>
+                    <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        {/* Step 1: Employee Selection */}
+                        <Box sx={{ mb: 3 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1.5, display: 'block' }}>
+                                Step 1: Select Employee
+                            </Typography>
+                            <Autocomplete
+                                options={employees}
+                                getOptionLabel={(option) => `${option.employee_name} (${option.employee_code})`}
+                                value={selectedEmployee}
+                                onChange={(event, newValue) => {
+                                    setSelectedEmployee(newValue);
+                                    if (newValue && selectedTemplate && monthlyCTC) {
+                                        handleGeneratePreview();
+                                    }
+                                }}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        placeholder="Search employee..."
+                                        size="medium"
+                                        InputProps={{
+                                            ...params.InputProps,
+                                            startAdornment: (
+                                                <>
+                                                    <PersonIcon sx={{ color: 'action.active', mr: 1 }} />
+                                                    {params.InputProps.startAdornment}
+                                                </>
+                                            ),
+                                        }}
+                                    />
+                                )}
+                                renderOption={(props, option) => {
+                                    const { key, ...otherProps } = props;
+                                    return (
+                                        <li key={key} {...otherProps}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.5 }}>
+                                                <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: '0.875rem' }}>
+                                                    {option.employee_name.charAt(0)}
                                                 </Avatar>
                                                 <Box>
-                                                    <Typography variant="body2" fontWeight={600}>
-                                                        {employee.name}
+                                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                                        {option.employee_name}
                                                     </Typography>
                                                     <Typography variant="caption" color="text.secondary">
-                                                        {employee.employeeId}
+                                                        {option.employee_code} • {option.department || 'N/A'}
                                                     </Typography>
                                                 </Box>
                                             </Box>
-                                        </TableCell>
-                                        <TableCell>{employee.department}</TableCell>
-                                        <TableCell>{employee.designation}</TableCell>
-                                        <TableCell align="right">
-                                            <Button
-                                                variant="outlined"
-                                                size="small"
-                                                startIcon={<AssignIcon />}
-                                                onClick={() => {
-                                                    setSelectedEmployee(employee);
-                                                    setShowAssignDialog(true);
-                                                }}
-                                            >
-                                                Assign
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                </Paper>
-            )}
-
-            {/* Assign Salary Dialog */}
-            <Dialog open={showAssignDialog} onClose={() => setShowAssignDialog(false)} maxWidth="md" fullWidth>
-                <DialogTitle>Assign Salary Structure</DialogTitle>
-                <DialogContent>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                        {/* Employee Selection */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Select Employee
-                            </Typography>
-                            <Autocomplete
-                                options={mockEmployees}
-                                getOptionLabel={(option) => `${option.name} (${option.employeeId})`}
-                                value={selectedEmployee}
-                                onChange={(event, newValue) => setSelectedEmployee(newValue)}
-                                renderInput={(params) => (
-                                    <TextField {...params} label="Employee" placeholder="Search and select employee" />
-                                )}
-                                renderOption={(props, option) => (
-                                    <Box component="li" {...props}>
-                                        <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.875rem' }}>
-                                            {option.name.charAt(0)}
-                                        </Avatar>
-                                        <Box>
-                                            <Typography variant="body2" fontWeight={600}>
-                                                {option.name}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {option.employeeId} • {option.department} • {option.designation}
-                                            </Typography>
-                                        </Box>
-                                    </Box>
-                                )}
+                                        </li>
+                                    );
+                                }}
                             />
                         </Box>
 
-                        {/* Salary Structure Selection */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Select Salary Structure
+                        {/* Step 2: Template Selection */}
+                        <Box sx={{ mb: 3 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1.5, display: 'block' }}>
+                                Step 2: Select Salary Template
                             </Typography>
-                            <Autocomplete
-                                options={mockSalaryStructures}
-                                getOptionLabel={(option) => option.name}
-                                value={selectedStructure}
-                                onChange={(event, newValue) => setSelectedStructure(newValue)}
-                                renderInput={(params) => (
-                                    <TextField {...params} label="Salary Structure" placeholder="Search and select structure" />
-                                )}
-                                renderOption={(props, option) => (
-                                    <Box component="li" {...props}>
-                                        <Box sx={{ width: '100%' }}>
-                                            <Typography variant="body2" fontWeight={600}>
-                                                {option.name}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                                Monthly: ₹{option.monthlySalary.toLocaleString('en-IN')} • 
-                                                Net: ₹{option.netPay.toLocaleString('en-IN')}
-                                            </Typography>
-                                        </Box>
-                                    </Box>
-                                )}
-                            />
+                            <FormControl fullWidth size="medium">
+                                <Select
+                                    value={selectedTemplate?.structure_id || ''}
+                                    onChange={(e) => {
+                                        const template = templates.find(t => t.structure_id === e.target.value);
+                                        setSelectedTemplate(template);
+                                        if (template && selectedEmployee && monthlyCTC) {
+                                            handleGeneratePreview();
+                                        }
+                                    }}
+                                    displayEmpty
+                                    startAdornment={<TemplateIcon sx={{ color: 'action.active', mr: 1 }} />}
+                                >
+                                    <MenuItem value="" disabled>
+                                        <Typography color="text.secondary">Select template...</Typography>
+                                    </MenuItem>
+                                    {templates.map((template) => (
+                                        <MenuItem key={template.structure_id} value={template.structure_id}>
+                                            <Box>
+                                                <Typography variant="body2">{template.structure_name}</Typography>
+                                                {template.description && (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {template.description}
+                                                    </Typography>
+                                                )}
+                                            </Box>
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
                         </Box>
 
-                        {/* Effective Date */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Effective Date
+                        {/* Step 3: CTC & Date */}
+                        <Box sx={{ mb: 3 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1.5, display: 'block' }}>
+                                Step 3: Enter Salary Details
                             </Typography>
-                            <TextField
-                                fullWidth
-                                label="Effective From"
-                                type="date"
-                                value={effectiveDate}
-                                onChange={(e) => setEffectiveDate(e.target.value)}
-                                slotProps={{ inputLabel: { shrink: true } }}
-                            />
+                            <Stack spacing={2}>
+                                <TextField
+                                    fullWidth
+                                    label="Monthly CTC"
+                                    type="number"
+                                    value={monthlyCTC}
+                                    onChange={(e) => {
+                                        const newValue = e.target.value;
+                                        setMonthlyCTC(newValue);
+                                        
+                                        // Clear existing timer
+                                        if (debounceTimerRef.current) {
+                                            clearTimeout(debounceTimerRef.current);
+                                        }
+                                        
+                                        // Auto-calculate on CTC change with debounce
+                                        if (newValue && selectedEmployee && selectedTemplate) {
+                                            debounceTimerRef.current = setTimeout(() => {
+                                                handleGeneratePreview(newValue);
+                                            }, 500);
+                                        } else {
+                                            // Clear preview if CTC is empty
+                                            setPreview(null);
+                                            setShowPreview(false);
+                                        }
+                                    }}
+                                    size="medium"
+                                    InputProps={{
+                                        startAdornment: <Typography sx={{ mr: 1, color: 'text.secondary', fontWeight: 500 }}>₹</Typography>
+                                    }}
+                                    placeholder="70000"
+                                />
+                                <AppDatePicker
+                                    label="Effective From (Optional)"
+                                    value={effectiveFrom}
+                                    onChange={(v) => setEffectiveFrom(v)}
+                                    helperText="Leave empty for current date"
+                                />
+                            </Stack>
                         </Box>
 
-                        {/* Preview */}
-                        {selectedEmployee && selectedStructure && (
-                            <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 2 }}>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                    Assignment Preview
+                        <Box sx={{ flexGrow: 1 }} />
+
+                        {/* Action Button */}
+                        <Button
+                            variant="outlined"
+                            startIcon={<RefreshIcon />}
+                            onClick={handleReset}
+                            disabled={loading || saving}
+                            fullWidth
+                            size="large"
+                        >
+                            Reset
+                        </Button>
+                    </Paper>
+                </Grid>
+
+                {/* Right Panel - Preview (8 columns) */}
+                <Grid size={{ xs: 12, md: 8 }}>
+                    <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        {showPreview && preview ? (
+                            <>
+                                <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+                                    Salary Breakdown Preview
                                 </Typography>
-                                <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                    <Box>
-                                        <Typography variant="body2" color="text.secondary">Employee</Typography>
-                                        <Typography variant="body1" fontWeight={600}>
-                                            {selectedEmployee.name} ({selectedEmployee.employeeId})
-                                        </Typography>
-                                    </Box>
-                                    <Box>
-                                        <Typography variant="body2" color="text.secondary">Structure</Typography>
-                                        <Typography variant="body1" fontWeight={600}>
-                                            {selectedStructure.name}
-                                        </Typography>
-                                    </Box>
-                                    <Box>
-                                        <Typography variant="body2" color="text.secondary">Monthly Salary</Typography>
-                                        <Typography variant="body1" fontWeight={600} color="primary.main">
-                                            ₹{selectedStructure.monthlySalary.toLocaleString('en-IN')}
-                                        </Typography>
-                                    </Box>
-                                    <Box>
-                                        <Typography variant="body2" color="text.secondary">Net Pay</Typography>
-                                        <Typography variant="body1" fontWeight={600} color="success.main">
-                                            ₹{selectedStructure.netPay.toLocaleString('en-IN')}
-                                        </Typography>
-                                    </Box>
+
+                                {/* Employee Info Card */}
+                                {selectedEmployee && (
+                                    <Card sx={{ mb: 3, bgcolor: 'primary.lighter', border: '1px solid', borderColor: 'primary.light' }}>
+                                        <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 2 }}>
+                                            <Avatar sx={{ width: 48, height: 48, bgcolor: 'primary.main', fontSize: '1.25rem' }}>
+                                                {selectedEmployee.employee_name.charAt(0)}
+                                            </Avatar>
+                                            <Box sx={{ flex: 1 }}>
+                                                <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                                                    {selectedEmployee.employee_name}
+                                                </Typography>
+                                                <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }}>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                        <BadgeIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {selectedEmployee.employee_code}
+                                                        </Typography>
+                                                    </Box>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                        <DepartmentIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {selectedEmployee.department || 'N/A'}
+                                                        </Typography>
+                                                    </Box>
+                                                </Stack>
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
+                                )}
+
+                                {/* Earnings */}
+                                <Box sx={{ mb: 2 }}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5, color: 'success.main', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                        Earnings
+                                    </Typography>
+                                    <Table size="small">
+                                        <TableBody>
+                                            {preview.earnings.map((item, index) => (
+                                                <TableRow key={index} sx={{ '&:last-child td': { border: 0 } }}>
+                                                    <TableCell sx={{ py: 1, border: 0 }}>{item.component_name}</TableCell>
+                                                    <TableCell align="right" sx={{ py: 1, border: 0, fontWeight: 500 }}>
+                                                        {payrollService.formatCurrency(item.amount)}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            <TableRow sx={{ bgcolor: 'success.lighter' }}>
+                                                <TableCell sx={{ py: 1.5, fontWeight: 600, border: 0 }}>Total Earnings</TableCell>
+                                                <TableCell align="right" sx={{ py: 1.5, fontWeight: 700, border: 0, color: 'success.main' }}>
+                                                    {payrollService.formatCurrency(preview.totalEarnings)}
+                                                </TableCell>
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
                                 </Box>
+
+                                <Divider sx={{ my: 2 }} />
+
+                                {/* Deductions */}
+                                <Box sx={{ mb: 3 }}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5, color: 'error.main', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                        Deductions
+                                    </Typography>
+                                    <Table size="small">
+                                        <TableBody>
+                                            {preview.deductions.map((item, index) => (
+                                                <TableRow key={index} sx={{ '&:last-child td': { border: 0 } }}>
+                                                    <TableCell sx={{ py: 1, border: 0 }}>{item.component_name}</TableCell>
+                                                    <TableCell align="right" sx={{ py: 1, border: 0, fontWeight: 500 }}>
+                                                        {payrollService.formatCurrency(item.amount)}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            <TableRow sx={{ bgcolor: 'error.lighter' }}>
+                                                <TableCell sx={{ py: 1.5, fontWeight: 600, border: 0 }}>Total Deductions</TableCell>
+                                                <TableCell align="right" sx={{ py: 1.5, fontWeight: 700, border: 0, color: 'error.main' }}>
+                                                    {payrollService.formatCurrency(preview.totalDeductions)}
+                                                </TableCell>
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
+                                </Box>
+
+                                <Box sx={{ flexGrow: 1 }} />
+
+                                {/* Net Salary Card - Bottom section */}
+                                <Box sx={{ pt: 2 }}>
+                                    <Card sx={{ bgcolor: 'primary.main', color: 'white', mb: 2 }}>
+                                        <CardContent sx={{ py: 2.5 }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                                                    Net Salary
+                                                </Typography>
+                                                <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                                                    {payrollService.formatCurrency(preview.netSalary)}
+                                                </Typography>
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
+
+                                    {/* Assign Button */}
+                                    <Button
+                                        variant="contained"
+                                        startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
+                                        onClick={handleAssignSalary}
+                                        disabled={saving}
+                                        fullWidth
+                                        size="large"
+                                        sx={{ py: 1.5 }}
+                                    >
+                                        {saving ? 'Assigning Salary Structure...' : 'Assign Salary Structure'}
+                                    </Button>
+                                </Box>
+                            </>
+                        ) : (
+                            <Box sx={{ 
+                                display: 'flex', 
+                                flexDirection: 'column', 
+                                justifyContent: 'center', 
+                                alignItems: 'center',
+                                height: '100%',
+                                minHeight: 400
+                            }}>
+                                <PreviewIcon sx={{ fontSize: 64, color: 'action.disabled', mb: 2 }} />
+                                <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+                                    No Preview Available
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', maxWidth: 400 }}>
+                                    Select employee, template, and enter CTC to see the salary breakdown. Preview updates automatically as you type.
+                                </Typography>
                             </Box>
                         )}
-                    </Box>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setShowAssignDialog(false)}>Cancel</Button>
-                    <Button 
-                        variant="contained" 
-                        onClick={handleAssignSalary}
-                        disabled={!selectedEmployee || !selectedStructure}
-                        startIcon={<SaveIcon />}
-                    >
-                        Assign Salary
-                    </Button>
-                </DialogActions>
-            </Dialog>
+                    </Paper>
+                </Grid>
+            </Grid>
         </Box>
     );
 };

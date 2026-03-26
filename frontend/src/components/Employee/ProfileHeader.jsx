@@ -18,12 +18,47 @@ import {
     CameraAlt as CameraIcon,
     Delete as DeleteIcon,
 } from '@mui/icons-material';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import employeeService from '../../services/employeeService';
 
-const ProfileHeader = ({ employee, onEditClick, isEditing, onPhotoUpdate }) => {
+// tabs 0=Personal, 1=Official are editable; rest are read-only
+const EDITABLE_TABS = [0, 1];
+const TAB_MANAGED_IN = {
+    2: null,                          // Status Management — has its own controls
+    3: 'Attendance module',
+    4: 'Leave module',
+    5: 'Payroll module',
+    6: null,                          // Documents — has inline upload/delete
+    7: 'Documents → Generate Letter',
+};
+
+const ProfileHeader = ({ employee, onEditClick, isEditing, onPhotoUpdate, activeTab = 0 }) => {
     const [uploadingPhoto, setUploadingPhoto] = useState(false);
     const [photoError, setPhotoError] = useState('');
+    const [photoUrl, setPhotoUrl] = useState(null);
+
+    // Load photo when employee changes
+    useEffect(() => {
+        if (employee?.photo_path && employee?.employee_id) {
+            loadEmployeePhoto();
+        } else {
+            setPhotoUrl(null);
+        }
+    }, [employee?.photo_path, employee?.employee_id]);
+
+    const loadEmployeePhoto = async () => {
+        try {
+            const result = await employeeService.getEmployeePhoto(employee.employee_id);
+            if (result.success) {
+                setPhotoUrl(result.data);
+            } else {
+                setPhotoUrl(null);
+            }
+        } catch (error) {
+            console.error('Failed to load photo:', error);
+            setPhotoUrl(null);
+        }
+    };
 
     if (!employee) return null;
 
@@ -54,6 +89,8 @@ const ProfileHeader = ({ employee, onEditClick, isEditing, onPhotoUpdate }) => {
                 if (onPhotoUpdate) {
                     onPhotoUpdate();
                 }
+                // Reload the photo
+                loadEmployeePhoto();
             } else {
                 setPhotoError(result.error || 'Failed to upload photo');
             }
@@ -81,6 +118,8 @@ const ProfileHeader = ({ employee, onEditClick, isEditing, onPhotoUpdate }) => {
                 if (onPhotoUpdate) {
                     onPhotoUpdate();
                 }
+                // Clear the photo
+                setPhotoUrl(null);
             } else {
                 setPhotoError(result.error || 'Failed to delete photo');
             }
@@ -149,7 +188,7 @@ const ProfileHeader = ({ employee, onEditClick, isEditing, onPhotoUpdate }) => {
                         }
                     >
                         <Avatar
-                            src={employee.photo_path ? `http://localhost:5000/employees/${employee.employee_id}/photo?t=${Date.now()}` : undefined}
+                            src={photoUrl}
                             sx={{
                                 width: { xs: 120, md: 150 },
                                 height: { xs: 120, md: 150 },
@@ -239,22 +278,21 @@ const ProfileHeader = ({ employee, onEditClick, isEditing, onPhotoUpdate }) => {
                                 }}
                             />
                             {!isEditing && (
-                                <Box sx={{ display: 'flex', gap: 1 }}>
-                                    <Button
-                                        variant="outlined"
-                                        startIcon={<EditIcon />}
-                                        size="small"
-                                        onClick={onEditClick}
-                                    >
-                                        Edit
-                                    </Button>
-                                    <Button
-                                        variant="outlined"
-                                        startIcon={<DownloadIcon />}
-                                        size="small"
-                                    >
-                                        Download
-                                    </Button>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: { xs: 'center', md: 'flex-end' }, gap: 1 }}>
+                                    {EDITABLE_TABS.includes(activeTab) ? (
+                                        <Box sx={{ display: 'flex', gap: 1 }}>
+                                            <Button variant="outlined" startIcon={<EditIcon />} size="small" onClick={onEditClick}>
+                                                Edit
+                                            </Button>
+                                            <Button variant="outlined" startIcon={<DownloadIcon />} size="small">
+                                                Download
+                                            </Button>
+                                        </Box>
+                                    ) : TAB_MANAGED_IN[activeTab] ? (
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', textAlign: 'right' }}>
+                                            Managed in {TAB_MANAGED_IN[activeTab]}
+                                        </Typography>
+                                    ) : null}
                                 </Box>
                             )}
                         </Box>

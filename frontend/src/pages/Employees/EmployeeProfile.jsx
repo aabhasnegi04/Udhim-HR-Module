@@ -41,6 +41,7 @@ import StatusManagement from '../../components/Employee/StatusManagement';
 
 // Import employee service
 import employeeService from '../../services/employeeService';
+import adminService from '../../services/adminService';
 
 const TabPanel = ({ children, value, index, ...other }) => {
     return (
@@ -69,10 +70,65 @@ const EmployeeProfile = () => {
     const [showCancelDialog, setShowCancelDialog] = useState(false);
     const [saving, setSaving] = useState(false);
 
+    // Master data states
+    const [departments, setDepartments] = useState([]);
+    const [designations, setDesignations] = useState([]);
+    const [locations, setLocations] = useState([]);
+    const [genders, setGenders] = useState([]);
+    const [employmentTypes, setEmploymentTypes] = useState([]);
+    const [masterDataLoading, setMasterDataLoading] = useState(false);
+
     // Load employee data on component mount
     useEffect(() => {
         loadEmployee();
     }, [employeeId]);
+
+    const loadMasterData = async () => {
+        try {
+            setMasterDataLoading(true);
+            
+            const [departmentsResult, designationsResult, locationsResult, gendersResult, employmentTypesResult] = await Promise.all([
+                adminService.getDepartments(),
+                adminService.getDesignations(),
+                adminService.getLocations(),
+                adminService.getGenders(),
+                adminService.getEmploymentTypes()
+            ]);
+            
+            if (departmentsResult.success) {
+                setDepartments(departmentsResult.data || []);
+            }
+            
+            if (designationsResult.success) {
+                setDesignations(designationsResult.data || []);
+            }
+
+            if (locationsResult.success) {
+                setLocations(locationsResult.data || []);
+            }
+
+            if (gendersResult.success) {
+                // Extract just the gender values from the objects
+                const genderValues = (gendersResult.data.genders || []).map(g => g.gender_name || g);
+                setGenders(genderValues);
+            }
+
+            if (employmentTypesResult.success) {
+                // Extract just the employment type values from the objects
+                const employmentTypeValues = (employmentTypesResult.data.employment_types || []).map(et => et.employment_type_name || et);
+                setEmploymentTypes(employmentTypeValues);
+            }
+            
+            if (locationsResult.success) {
+                setLocations(locationsResult.data || []);
+            }
+            
+        } catch (error) {
+            console.error('Error loading master data:', error);
+        } finally {
+            setMasterDataLoading(false);
+        }
+    };
 
     const loadEmployee = async () => {
         try {
@@ -132,10 +188,20 @@ const EmployeeProfile = () => {
     };
 
     const handleTabChange = (event, newValue) => {
+        // In edit mode, only allow switching between editable tabs (0=Personal, 1=Official)
+        if (isEditing && newValue > 1) {
+            return;
+        }
         setActiveTab(newValue);
     };
 
-    const handleEditClick = () => {
+    const handleEditClick = async () => {
+        // Load master data FIRST before entering edit mode
+        if (departments.length === 0 || designations.length === 0 || locations.length === 0 || genders.length === 0 || employmentTypes.length === 0) {
+            await loadMasterData();
+        }
+        
+        // Then enter edit mode
         setIsEditing(true);
         setEditedData({ ...employee });
     };
@@ -372,6 +438,7 @@ const EmployeeProfile = () => {
                 onEditClick={handleEditClick}
                 isEditing={isEditing}
                 onPhotoUpdate={loadEmployee}
+                activeTab={activeTab}
             />
 
             {/* Tabs */}
@@ -388,7 +455,14 @@ const EmployeeProfile = () => {
                             minHeight: 64,
                             textTransform: 'none',
                             fontWeight: 500,
-                        }
+                        },
+                        ...(isEditing && {
+                            '& .MuiTab-root:nth-of-type(n+3)': {
+                                opacity: 0.4,
+                                pointerEvents: 'none',
+                                color: 'text.disabled',
+                            }
+                        })
                     }}
                 >
                     {tabs.map((tab, index) => (
@@ -412,6 +486,7 @@ const EmployeeProfile = () => {
                         employee={isEditing ? editedData : employee}
                         isEditing={isEditing}
                         onFieldChange={handleFieldChange}
+                        genderOptions={genders}
                     />
                 </TabPanel>
                 <TabPanel value={activeTab} index={1}>
@@ -419,6 +494,10 @@ const EmployeeProfile = () => {
                         employee={isEditing ? editedData : employee}
                         isEditing={isEditing}
                         onFieldChange={handleFieldChange}
+                        departments={departments}
+                        designations={designations}
+                        locations={locations}
+                        employmentTypes={employmentTypes}
                     />
                 </TabPanel>
                 <TabPanel value={activeTab} index={2}>

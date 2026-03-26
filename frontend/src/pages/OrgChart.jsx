@@ -37,52 +37,110 @@ const EmployeeCard = ({ employee, searchTerm, isExpanded, onToggleExpand, hasRep
     };
 
     const getLevelStyles = (level) => {
-        switch (level) {
-            case 0: // CEO
-                return { 
-                    bg: 'error.light', 
-                    text: 'error.contrastText',
-                    width: 280,
-                    height: 180,
-                    avatarSize: 56,
-                    nameSize: '1rem',
-                    designationSize: '0.875rem',
-                    buttonSize: 'medium'
-                };
-            case 1: // VP
-                return { 
-                    bg: 'warning.light', 
-                    text: 'warning.contrastText',
-                    width: 240,
-                    height: 160,
-                    avatarSize: 48,
-                    nameSize: '0.875rem',
-                    designationSize: '0.75rem',
-                    buttonSize: 'small'
-                };
-            case 2: // Manager
-                return { 
-                    bg: 'info.light', 
-                    text: 'info.contrastText',
-                    width: 200,
-                    height: 140,
-                    avatarSize: 40,
-                    nameSize: '0.75rem',
-                    designationSize: '0.65rem',
-                    buttonSize: 'small'
-                };
-            default: // Employee
-                return { 
-                    bg: 'success.light', 
-                    text: 'success.contrastText',
-                    width: 160,
-                    height: 120,
-                    avatarSize: 32,
-                    nameSize: '0.65rem',
-                    designationSize: '0.6rem',
-                    buttonSize: 'small'
-                };
-        }
+        const levelConfigs = {
+            1: { // CEO, Managing Director, Founder
+                bg: '#8B0000', // Dark Red
+                text: '#FFFFFF',
+                width: 280,
+                height: 180,
+                avatarSize: 56,
+                nameSize: '1rem',
+                designationSize: '0.875rem',
+                buttonSize: 'medium'
+            },
+            2: { // CTO, CFO, COO, VP
+                bg: '#DC143C', // Crimson
+                text: '#FFFFFF',
+                width: 260,
+                height: 170,
+                avatarSize: 52,
+                nameSize: '0.95rem',
+                designationSize: '0.825rem',
+                buttonSize: 'medium'
+            },
+            3: { // Director, Head of Department
+                bg: '#FF6347', // Tomato
+                text: '#FFFFFF',
+                width: 240,
+                height: 160,
+                avatarSize: 48,
+                nameSize: '0.875rem',
+                designationSize: '0.75rem',
+                buttonSize: 'small'
+            },
+            4: { // Senior Manager
+                bg: '#FF8C00', // Dark Orange
+                text: '#FFFFFF',
+                width: 220,
+                height: 150,
+                avatarSize: 44,
+                nameSize: '0.8rem',
+                designationSize: '0.7rem',
+                buttonSize: 'small'
+            },
+            5: { // Manager
+                bg: '#FFA500', // Orange
+                text: '#000000',
+                width: 200,
+                height: 140,
+                avatarSize: 40,
+                nameSize: '0.75rem',
+                designationSize: '0.65rem',
+                buttonSize: 'small'
+            },
+            6: { // Team Lead, Assistant Manager
+                bg: '#FFD700', // Gold
+                text: '#000000',
+                width: 190,
+                height: 135,
+                avatarSize: 38,
+                nameSize: '0.725rem',
+                designationSize: '0.625rem',
+                buttonSize: 'small'
+            },
+            7: { // Senior Executive, Senior Engineer
+                bg: '#90EE90', // Light Green
+                text: '#000000',
+                width: 180,
+                height: 130,
+                avatarSize: 36,
+                nameSize: '0.7rem',
+                designationSize: '0.6rem',
+                buttonSize: 'small'
+            },
+            8: { // Executive, Engineer
+                bg: '#87CEEB', // Sky Blue
+                text: '#000000',
+                width: 170,
+                height: 125,
+                avatarSize: 34,
+                nameSize: '0.675rem',
+                designationSize: '0.575rem',
+                buttonSize: 'small'
+            },
+            9: { // Junior Executive, Junior Engineer
+                bg: '#B0C4DE', // Light Steel Blue
+                text: '#000000',
+                width: 160,
+                height: 120,
+                avatarSize: 32,
+                nameSize: '0.65rem',
+                designationSize: '0.55rem',
+                buttonSize: 'small'
+            },
+            10: { // Intern, Trainee
+                bg: '#D3D3D3', // Light Gray
+                text: '#000000',
+                width: 150,
+                height: 115,
+                avatarSize: 30,
+                nameSize: '0.625rem',
+                designationSize: '0.525rem',
+                buttonSize: 'small'
+            }
+        };
+
+        return levelConfigs[level] || levelConfigs[10]; // Default to level 10 if not found
     };
 
     const styles = getLevelStyles(employee.level);
@@ -128,7 +186,7 @@ const EmployeeCard = ({ employee, searchTerm, isExpanded, onToggleExpand, hasRep
                         {employee.designation}
                     </Typography>
                     
-                    {employee.level <= 1 && (
+                    {employee.level <= 2 && (
                         <Typography variant="caption" sx={{ opacity: 0.8, fontSize: styles.designationSize, lineHeight: 1.1, display: 'block', mt: 0.5 }}>
                             {employee.department}
                         </Typography>
@@ -199,7 +257,7 @@ const OrgChart = () => {
                 
                 // Auto-expand top 2 levels
                 const topLevelNodes = result.data
-                    .filter(emp => emp.level <= 1)
+                    .filter(emp => emp.level <= 2)
                     .map(emp => emp.id);
                 setExpandedNodes(new Set(topLevelNodes));
             } else {
@@ -228,8 +286,8 @@ const OrgChart = () => {
     const getVisibleEmployees = () => {
         if (orgData.length === 0) return [];
         
-        // Find top-level employees (level 0 or those with no manager)
-        const topLevel = orgData.filter(emp => emp.level === 0 || emp.manager_id === null);
+        // Find top-level employees (level 1 or those with no manager)
+        const topLevel = orgData.filter(emp => emp.level === 1 || emp.manager_id === null);
         
         // If no clear top level, show all employees grouped by level
         if (topLevel.length === 0) {
@@ -540,33 +598,77 @@ const OrgChart = () => {
             {/* Legend */}
             <Paper sx={{ p: 3, mt: 3 }}>
                 <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                    Organization Levels
+                    Designation Hierarchy (10 Levels)
                 </Typography>
                 <Box sx={{ 
                     display: 'grid', 
-                    gridTemplateColumns: { xs: '1fr 1fr', md: '1fr 1fr 1fr 1fr' },
+                    gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr 1fr' },
                     gap: 2 
                 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 16, height: 16, bgcolor: 'error.light', borderRadius: 1 }} />
-                        <Typography variant="body2">CEO Level</Typography>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#8B0000', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 1:</strong> CEO, Managing Director, Founder
+                        </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 16, height: 16, bgcolor: 'warning.light', borderRadius: 1 }} />
-                        <Typography variant="body2">VP Level</Typography>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#DC143C', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 2:</strong> CTO, CFO, COO, VP
+                        </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 16, height: 16, bgcolor: 'info.light', borderRadius: 1 }} />
-                        <Typography variant="body2">Manager Level</Typography>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#FF6347', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 3:</strong> Director, Head of Dept
+                        </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 16, height: 16, bgcolor: 'success.light', borderRadius: 1 }} />
-                        <Typography variant="body2">Employee Level</Typography>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#FF8C00', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 4:</strong> Senior Manager
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#FFA500', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 5:</strong> Manager
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#FFD700', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 6:</strong> Team Lead, Asst Manager
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#90EE90', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 7:</strong> Senior Executive/Engineer
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#87CEEB', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 8:</strong> Executive, Engineer
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#B0C4DE', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 9:</strong> Junior Executive/Engineer
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 20, height: 20, bgcolor: '#D3D3D3', borderRadius: 1, border: '1px solid #ddd' }} />
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            <strong>Level 10:</strong> Intern, Trainee
+                        </Typography>
                     </Box>
                 </Box>
                 
-                <Typography variant="body2" sx={{ mt: 2, color: 'text.secondary' }}>
-                    💡 Click the expand/collapse buttons to show or hide team members. Use search to highlight specific employees.
+                <Typography variant="body2" sx={{ mt: 3, color: 'text.secondary', fontStyle: 'italic' }}>
+                    💡 Tip: Click expand/collapse buttons to show or hide team members. Use search to highlight specific employees. Card colors and sizes represent hierarchy levels.
                 </Typography>
             </Paper>
         </Box>

@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import AppDatePicker from '../../components/common/AppDatePicker';
 import {
     Box,
     Typography,
@@ -31,6 +32,7 @@ import {
 } from '@mui/icons-material';
 import employeeService from '../../services/employeeService';
 import leaveService from '../../services/leaveService';
+import adminService from '../../services/adminService';
 import EmployeeCredentialsDialog from '../../components/EmployeeCredentialsDialog';
 
 const AddEmployee = () => {
@@ -41,6 +43,12 @@ const AddEmployee = () => {
     const [success, setSuccess] = useState('');
     const [showCredentials, setShowCredentials] = useState(false);
     const [createdEmployeeData, setCreatedEmployeeData] = useState(null);
+    
+    // Data loading states
+    const [departments, setDepartments] = useState([]);
+    const [designations, setDesignations] = useState([]);
+    const [locations, setLocations] = useState([]);
+    const [dataLoading, setDataLoading] = useState(true);
     
     // Photo upload state
     const [selectedPhoto, setSelectedPhoto] = useState(null);
@@ -73,30 +81,62 @@ const AddEmployee = () => {
         manager_id: ''
     });
 
-    const departments = [
-        'Engineering',
-        'Human Resources', 
-        'Finance',
-        'Marketing',
-        'Sales',
-        'Operations'
-    ];
+    const [genders, setGenders] = useState([]);
+    const [employmentTypes, setEmploymentTypes] = useState([]);
 
-    const designations = [
-        'Software Engineer',
-        'Senior Software Engineer',
-        'Engineering Manager',
-        'HR Executive',
-        'HR Manager',
-        'Financial Analyst',
-        'Marketing Executive',
-        'Sales Executive',
-        'Operations Manager'
-    ];
+    // Load departments, designations, locations, and other master data on component mount
+    useEffect(() => {
+        const loadMasterData = async () => {
+            try {
+                setDataLoading(true);
+                
+                const [departmentsResult, designationsResult, locationsResult, gendersResult, employmentTypesResult] = await Promise.all([
+                    adminService.getDepartments(),
+                    adminService.getDesignations(),
+                    adminService.getLocations(),
+                    adminService.getGenders(),
+                    adminService.getEmploymentTypes()
+                ]);
+                
+                if (departmentsResult.success) {
+                    setDepartments(departmentsResult.data || []);
+                } else {
+                    console.error('Failed to load departments:', departmentsResult.error);
+                }
+                
+                if (designationsResult.success) {
+                    setDesignations(designationsResult.data || []);
+                } else {
+                    console.error('Failed to load designations:', designationsResult.error);
+                }
+                
+                if (locationsResult.success) {
+                    setLocations(locationsResult.data || []);
+                } else {
+                    console.error('Failed to load locations:', locationsResult.error);
+                }
 
-    const genders = ['Male', 'Female', 'Other'];
-    
-    const employmentTypes = ['Full-Time', 'Part-Time', 'Contract', 'Intern'];
+                if (gendersResult.success) {
+                    setGenders(gendersResult.data.genders || []);
+                } else {
+                    console.error('Failed to load genders:', gendersResult.error);
+                }
+
+                if (employmentTypesResult.success) {
+                    setEmploymentTypes(employmentTypesResult.data.employment_types || []);
+                } else {
+                    console.error('Failed to load employment types:', employmentTypesResult.error);
+                }
+                
+            } catch (error) {
+                console.error('Error loading master data:', error);
+            } finally {
+                setDataLoading(false);
+            }
+        };
+        
+        loadMasterData();
+    }, []);
 
     const handleInputChange = (event) => {
         const { name, value } = event.target;
@@ -151,6 +191,23 @@ const AddEmployee = () => {
     const handleSubmit = async (event) => {
         event.preventDefault();
         
+        // Check if master data is still loading
+        if (dataLoading) {
+            setError('Please wait for departments and designations to load');
+            return;
+        }
+        
+        // Check if departments and designations are available
+        if (departments.length === 0) {
+            setError('No departments available. Please contact admin to add departments first.');
+            return;
+        }
+        
+        if (designations.length === 0) {
+            setError('No designations available. Please contact admin to add designations first.');
+            return;
+        }
+        
         // Basic validation
         if (!formData.first_name || !formData.last_name || !formData.email || 
             !formData.department || !formData.designation) {
@@ -188,34 +245,36 @@ const AddEmployee = () => {
                 if (result.data.employee_id) {
                     try {
                         const currentYear = new Date().getFullYear();
-                        const standardAllocations = [
-                            { leave_code: 'AL', days: 21 },
-                            { leave_code: 'CL', days: 12 },
-                            { leave_code: 'SL', days: 12 },
-                            { leave_code: 'EL', days: 21 },
-                            { leave_code: 'ML', days: 180 },
-                            { leave_code: 'PL', days: 15 },
-                            { leave_code: 'CO', days: 12 }
-                        ];
                         
-                        // Get leave types first
+                        // Get leave types first and allocate based on system configuration
                         const leaveTypesResult = await leaveService.getLeaveTypes();
-                        if (leaveTypesResult.success) {
-                            const allocationPromises = standardAllocations.map(allocation => {
-                                const leaveType = leaveTypesResult.data.find(lt => lt.leave_code === allocation.leave_code);
-                                if (leaveType) {
+                        if (leaveTypesResult.success && leaveTypesResult.data.length > 0) {
+                            // Define standard allocations - this could be moved to a configuration API later
+                            const standardAllocations = {
+                                'AL': 21,  // Annual Leave
+                                'CL': 12,  // Casual Leave
+                                'SL': 12,  // Sick Leave
+                                'EL': 21,  // Earned Leave
+                                'ML': 180, // Maternity Leave
+                                'PL': 15,  // Paternity Leave
+                                'CO': 12   // Compensatory Off
+                            };
+                            
+                            const allocationPromises = leaveTypesResult.data.map(leaveType => {
+                                const days = standardAllocations[leaveType.leave_code];
+                                if (days) {
                                     return leaveService.allocateLeaveBalance({
                                         employee_id: result.data.employee_id,
                                         leave_type_id: leaveType.leave_type_id,
                                         year: currentYear,
-                                        total_allocated: allocation.days
+                                        total_allocated: days
                                     });
                                 }
                                 return Promise.resolve({ success: false });
                             });
                             
                             await Promise.all(allocationPromises);
-                            console.log('Leave balances allocated automatically');
+                            console.log('Leave balances allocated automatically based on available leave types');
                         }
                     } catch (leaveError) {
                         console.error('Failed to allocate leave balances:', leaveError);
@@ -300,6 +359,16 @@ const AddEmployee = () => {
             {success && (
                 <Alert severity="success" sx={{ mb: 3 }}>
                     {success}
+                </Alert>
+            )}
+
+            {/* Loading indicator for master data */}
+            {dataLoading && (
+                <Alert severity="info" sx={{ mb: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CircularProgress size={20} />
+                        Loading departments, designations, and locations...
+                    </Box>
                 </Alert>
             )}
 
@@ -488,14 +557,10 @@ const AddEmployee = () => {
                     {/* Row 3: DOB, Gender */}
                     <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
-                            <TextField
-                                fullWidth
+                            <AppDatePicker
                                 label="Date of Birth"
-                                name="dob"
-                                type="date"
                                 value={formData.dob}
-                                onChange={handleInputChange}
-                                slotProps={{ inputLabel: { shrink: true } }}
+                                onChange={(v) => handleInputChange({ target: { name: 'dob', value: v } })}
                             />
                         </Box>
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
@@ -567,12 +632,24 @@ const AddEmployee = () => {
                                     value={formData.department}
                                     onChange={handleInputChange}
                                     label="Department"
+                                    disabled={dataLoading}
                                 >
-                                    {departments.map((dept) => (
-                                        <MenuItem key={dept} value={dept}>
-                                            {dept}
+                                    {dataLoading ? (
+                                        <MenuItem disabled>
+                                            <CircularProgress size={20} sx={{ mr: 1 }} />
+                                            Loading departments...
                                         </MenuItem>
-                                    ))}
+                                    ) : departments.length === 0 ? (
+                                        <MenuItem disabled>
+                                            No departments available. Please contact admin to add departments.
+                                        </MenuItem>
+                                    ) : (
+                                        departments.map((dept) => (
+                                            <MenuItem key={dept.department_id || dept.department_name} value={dept.department_name}>
+                                                {dept.department_name}
+                                            </MenuItem>
+                                        ))
+                                    )}
                                 </Select>
                             </FormControl>
                         </Box>
@@ -584,12 +661,24 @@ const AddEmployee = () => {
                                     value={formData.designation}
                                     onChange={handleInputChange}
                                     label="Designation"
+                                    disabled={dataLoading}
                                 >
-                                    {designations.map((designation) => (
-                                        <MenuItem key={designation} value={designation}>
-                                            {designation}
+                                    {dataLoading ? (
+                                        <MenuItem disabled>
+                                            <CircularProgress size={20} sx={{ mr: 1 }} />
+                                            Loading designations...
                                         </MenuItem>
-                                    ))}
+                                    ) : designations.length === 0 ? (
+                                        <MenuItem disabled>
+                                            No designations available. Please contact admin to add designations.
+                                        </MenuItem>
+                                    ) : (
+                                        designations.map((designation) => (
+                                            <MenuItem key={designation.designation_id || designation.designation_name} value={designation.designation_name}>
+                                                {designation.designation_name}
+                                            </MenuItem>
+                                        ))
+                                    )}
                                 </Select>
                             </FormControl>
                         </Box>
@@ -598,14 +687,10 @@ const AddEmployee = () => {
                     {/* Row 2: Date of Joining, Employment Type */}
                     <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
-                            <TextField
-                                fullWidth
+                            <AppDatePicker
                                 label="Date of Joining"
-                                name="join_date"
-                                type="date"
                                 value={formData.join_date}
-                                onChange={handleInputChange}
-                                slotProps={{ inputLabel: { shrink: true } }}
+                                onChange={(v) => handleInputChange({ target: { name: 'join_date', value: v } })}
                             />
                         </Box>
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
@@ -633,14 +718,36 @@ const AddEmployee = () => {
                     {/* Row 3: Work Location, Salary */}
                     <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
-                            <TextField
-                                fullWidth
-                                label="Work Location"
-                                name="work_location"
-                                value={formData.work_location}
-                                onChange={handleInputChange}
-                                placeholder="e.g., New York Office, Remote"
-                            />
+                            <FormControl fullWidth>
+                                <InputLabel>Work Location</InputLabel>
+                                <Select
+                                    name="work_location"
+                                    value={formData.work_location}
+                                    onChange={handleInputChange}
+                                    label="Work Location"
+                                    disabled={dataLoading}
+                                >
+                                    <MenuItem value="">
+                                        <em>Select location</em>
+                                    </MenuItem>
+                                    {dataLoading ? (
+                                        <MenuItem disabled>
+                                            <CircularProgress size={20} sx={{ mr: 1 }} />
+                                            Loading locations...
+                                        </MenuItem>
+                                    ) : locations.length === 0 ? (
+                                        <MenuItem disabled>
+                                            No locations available. Please contact admin to add locations.
+                                        </MenuItem>
+                                    ) : (
+                                        locations.map((location) => (
+                                            <MenuItem key={location.location_id || location.location_name} value={location.location_name}>
+                                                {location.location_name} {location.city && `- ${location.city}`}
+                                            </MenuItem>
+                                        ))
+                                    )}
+                                </Select>
+                            </FormControl>
                         </Box>
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
                             <TextField

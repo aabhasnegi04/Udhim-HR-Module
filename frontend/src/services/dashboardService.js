@@ -35,6 +35,28 @@ class DashboardService {
     }
   }
 
+  // Get HR alerts (needs attention)
+  async getHRAlerts() {
+    try {
+      const response = await apiService.get('/dashboard/hr-alerts');
+      return response;
+    } catch (error) {
+      console.error('Get HR alerts failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Get 7-day attendance trend
+  async getHRAttendanceTrend() {
+    try {
+      const response = await apiService.get('/dashboard/hr-attendance-trend');
+      return response;
+    } catch (error) {
+      console.error('Get HR attendance trend failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   // Get Employee Dashboard stats
   async getEmployeeDashboardStats() {
     try {
@@ -45,7 +67,6 @@ class DashboardService {
       return { success: false, error: error.message };
     }
   }
-
   // Get recent activities
   async getRecentActivities() {
     try {

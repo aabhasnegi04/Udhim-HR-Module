@@ -1,5 +1,19 @@
-# Exclude backend-anotherproject folder
+# Exclude specific project folders
 backend-anotherproject/
+backend_deploy/
+backend/backend_deploy/
+backend/database_scripts/
+backend/scripts&sql/
+employee_pfp/
+markdown_files/
+
+# Kiro and IDE folders
+.kiro/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # Python
 __pycache__/
@@ -26,9 +40,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# Environment variables
+# Environment variables (excluded due to GitHub secret scanning)
 .env
 *.env
+!.env.example
 
 # Node
 node_modules/
@@ -37,16 +52,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Build outputs
+# Build outputs and archives
 /frontend/dist/
 /frontend/build/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+*.zip
 
 # OS
 .DS_Store

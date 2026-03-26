@@ -43,7 +43,13 @@ const AttendanceTable = () => {
     const [statusFilter, setStatusFilter] = useState('All');
     const [departmentFilter, setDepartmentFilter] = useState('All');
     const [dateRange, setDateRange] = useState('today'); // 'today', 'week', 'month'
-    const [viewMode, setViewMode] = useState('cards');
+    
+    // Default view: table/list for desktop (md+), cards/grid for mobile
+    const getDefaultViewMode = () => {
+        return window.innerWidth >= 900 ? 'table' : 'cards';
+    };
+    const [viewMode, setViewMode] = useState(getDefaultViewMode());
+    
     const [attendanceData, setAttendanceData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -51,6 +57,17 @@ const AttendanceTable = () => {
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [selectedRecord, setSelectedRecord] = useState(null);
+
+    // Handle window resize to update view mode responsively
+    useEffect(() => {
+        const handleResize = () => {
+            const newDefaultView = window.innerWidth >= 900 ? 'table' : 'cards';
+            setViewMode(newDefaultView);
+        };
+
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // Load attendance data
     useEffect(() => {

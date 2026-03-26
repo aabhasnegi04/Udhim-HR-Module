@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import AppDatePicker from '../../components/common/AppDatePicker';
 import {
     Box,
     Typography,
@@ -243,24 +244,18 @@ const LeaveReports = () => {
                     {/* Date Range Row */}
                     <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                         <Box sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)' }, minWidth: { xs: '100%', sm: '150px' } }}>
-                            <TextField
-                                fullWidth
+                            <AppDatePicker
                                 label="From Date"
-                                type="date"
                                 value={dateRange.from}
-                                onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
-                                slotProps={{ inputLabel: { shrink: true } }}
+                                onChange={(v) => setDateRange(prev => ({ ...prev, from: v }))}
                                 size="small"
                             />
                         </Box>
                         <Box sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)' }, minWidth: { xs: '100%', sm: '150px' } }}>
-                            <TextField
-                                fullWidth
+                            <AppDatePicker
                                 label="To Date"
-                                type="date"
                                 value={dateRange.to}
-                                onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
-                                slotProps={{ inputLabel: { shrink: true } }}
+                                onChange={(v) => setDateRange(prev => ({ ...prev, to: v }))}
                                 size="small"
                             />
                         </Box>
@@ -337,24 +332,18 @@ const LeaveReports = () => {
                 {/* Desktop Layout - Single Row */}
                 <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                     <Box sx={{ flex: '0 0 200px', minWidth: '200px' }}>
-                        <TextField
-                            fullWidth
+                        <AppDatePicker
                             label="From Date"
-                            type="date"
                             value={dateRange.from}
-                            onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
-                            slotProps={{ inputLabel: { shrink: true } }}
+                            onChange={(v) => setDateRange(prev => ({ ...prev, from: v }))}
                             size="small"
                         />
                     </Box>
                     <Box sx={{ flex: '0 0 200px', minWidth: '200px' }}>
-                        <TextField
-                            fullWidth
+                        <AppDatePicker
                             label="To Date"
-                            type="date"
                             value={dateRange.to}
-                            onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
-                            slotProps={{ inputLabel: { shrink: true } }}
+                            onChange={(v) => setDateRange(prev => ({ ...prev, to: v }))}
                             size="small"
                         />
                     </Box>

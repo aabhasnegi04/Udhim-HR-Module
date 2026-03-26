@@ -15,6 +15,7 @@ import {
     Home as HomeIcon,
     ContactEmergency as EmergencyIcon,
 } from '@mui/icons-material';
+import AppDatePicker from '../common/AppDatePicker';
 
 const InfoItem = ({ icon, label, value, isEditing, field, onFieldChange, type = 'text', options = [] }) => {
     // Helper to convert date to YYYY-MM-DD format for input
@@ -76,14 +77,11 @@ const InfoItem = ({ icon, label, value, isEditing, field, onFieldChange, type = 
                             ))}
                         </TextField>
                     ) : type === 'date' ? (
-                        <TextField
-                            fullWidth
-                            size="small"
-                            type="date"
+                        <AppDatePicker
                             value={getDateInputValue(value)}
-                            onChange={(e) => onFieldChange(field, e.target.value)}
+                            onChange={(v) => onFieldChange(field, v)}
+                            size="small"
                             sx={{ mt: 0.5 }}
-                            InputLabelProps={{ shrink: true }}
                         />
                     ) : (
                         <TextField
@@ -106,7 +104,7 @@ const InfoItem = ({ icon, label, value, isEditing, field, onFieldChange, type = 
     );
 };
 
-const PersonalInfo = ({ employee, isEditing, onFieldChange }) => {
+const PersonalInfo = ({ employee, isEditing, onFieldChange, genderOptions = [] }) => {
     if (!employee) return null;
 
     return (
@@ -151,7 +149,7 @@ const PersonalInfo = ({ employee, isEditing, onFieldChange }) => {
                             field="gender"
                             onFieldChange={onFieldChange}
                             type="select"
-                            options={['Male', 'Female', 'Other']}
+                            options={genderOptions}
                         />
                     </Grid>
                     

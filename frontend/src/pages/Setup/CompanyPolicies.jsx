@@ -1,309 +1,187 @@
-import { useState, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import {
-    Box,
-    Typography,
-    Paper,
-    Card,
-    CardContent,
-    Button,
-    TextField,
-    MenuItem,
-    FormControl,
-    InputLabel,
-    Select,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Chip,
-    IconButton,
-    Stack,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Divider,
-    Alert,
-    Switch,
-    FormControlLabel,
-    Checkbox,
-    List,
-    ListItem,
-    ListItemIcon,
-    ListItemText
+    Box, Typography, Paper, Card, CardContent, Button, TextField,
+    MenuItem, FormControl, InputLabel, Select, Table, TableBody,
+    TableCell, TableContainer, TableHead, TableRow, Chip, IconButton,
+    Stack, Dialog, DialogTitle, DialogContent, DialogActions, Divider,
+    Alert, Switch, FormControlLabel, Checkbox, List, ListItem,
+    ListItemIcon, ListItemText, CircularProgress
 } from '@mui/material';
 import {
-    Add as AddIcon,
-    Edit as EditIcon,
-    Delete as DeleteIcon,
-    Visibility as ViewIcon,
-    Upload as UploadIcon,
-    Download as DownloadIcon,
-    Refresh as RefreshIcon,
-    Policy as PolicyIcon,
-    CheckCircle as CheckIcon,
+    Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
+    Visibility as ViewIcon, Refresh as RefreshIcon,
+    Policy as PolicyIcon, CheckCircle as CheckIcon,
     Description as DocumentIcon
 } from '@mui/icons-material';
 import { AuthContext } from '../../context/AuthContext';
+import { useProfileSwitching } from '../../context/ProfileSwitchingContext';
+import adminService from '../../services/adminService';
 
-// Mock policy data
-const mockPolicies = [
-    {
-        id: 1,
-        title: 'Employee Code of Conduct',
-        category: 'HR Policy',
-        description: 'Guidelines for professional behavior and workplace ethics',
-        visibility: ['Employee', 'Manager', 'HR'],
-        isActive: true,
-        requiresAcknowledgment: true,
-        uploadedBy: 'HR Admin',
-        uploadedOn: '2024-12-01',
-        fileSize: '2.5 MB',
-        fileType: 'PDF',
-        acknowledgedBy: ['EMP001', 'EMP002', 'EMP003']
-    },
-    {
-        id: 2,
-        title: 'Leave Policy 2025',
-        category: 'Leave Policy',
-        description: 'Updated leave policy including new work-from-home guidelines',
-        visibility: ['Employee', 'Manager', 'HR'],
-        isActive: true,
-        requiresAcknowledgment: true,
-        uploadedBy: 'HR Admin',
-        uploadedOn: '2025-01-01',
-        fileSize: '1.8 MB',
-        fileType: 'PDF',
-        acknowledgedBy: ['EMP001', 'EMP002']
-    },
-    {
-        id: 3,
-        title: 'IT Security Guidelines',
-        category: 'IT Policy',
-        description: 'Information security protocols and data protection guidelines',
-        visibility: ['Employee', 'Manager', 'HR'],
-        isActive: true,
-        requiresAcknowledgment: true,
-        uploadedBy: 'IT Admin',
-        uploadedOn: '2024-11-15',
-        fileSize: '3.2 MB',
-        fileType: 'PDF',
-        acknowledgedBy: ['EMP001']
-    },
-    {
-        id: 4,
-        title: 'Performance Management Framework',
-        category: 'HR Policy',
-        description: 'Annual performance review process and evaluation criteria',
-        visibility: ['Manager', 'HR'],
-        isActive: true,
-        requiresAcknowledgment: false,
-        uploadedBy: 'HR Admin',
-        uploadedOn: '2024-10-01',
-        fileSize: '4.1 MB',
-        fileType: 'PDF',
-        acknowledgedBy: []
-    }
+const POLICY_CATEGORIES = [
+    'HR Policy', 'Leave Policy', 'IT Policy',
+    'Finance Policy', 'Safety Policy', 'Compliance Policy'
 ];
+const VISIBILITY_OPTIONS = ['Employee', 'Manager', 'HR'];
 
 const CompanyPolicies = () => {
     const { user } = useContext(AuthContext);
-    const [policies, setPolicies] = useState(mockPolicies);
-    const [showPolicyDialog, setShowPolicyDialog] = useState(false);
+    const { currentView } = useProfileSwitching();
+    const isHR = currentView === 'HR';
+
+    const [policies, setPolicies] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const [showDialog, setShowDialog] = useState(false);
     const [showViewDialog, setShowViewDialog] = useState(false);
     const [selectedPolicy, setSelectedPolicy] = useState(null);
-    const [isNewPolicy, setIsNewPolicy] = useState(false);
+    const [isNew, setIsNew] = useState(false);
     const [formData, setFormData] = useState({
-        title: '',
-        category: '',
-        description: '',
-        visibility: [],
-        isActive: true,
-        requiresAcknowledgment: false
+        policy_title: '', policy_category: '', policy_description: '',
+        visibility_settings: [], policy_status: 'Active',
+        policy_version: '1.0', effective_date: ''
     });
 
-    // Filter policies based on user role
-    const getFilteredPolicies = () => {
-        return policies.filter(policy => 
-            policy.visibility.includes(user?.role) && policy.isActive
-        );
+    const fetchPolicies = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            let res;
+            if (isHR) {
+                // HR users can use admin endpoint to see all policies
+                res = await adminService.getCompanyPolicies();
+            } else {
+                // Non-HR users use employee endpoint (filtered by visibility)
+                const apiService = (await import('../../services/api')).default;
+                res = await apiService.get('/employees/company-policies');
+            }
+            
+            if (res.success) {
+                setPolicies(res.data?.policies || res.data || []);
+            } else {
+                setError(res.error || 'Failed to load policies');
+            }
+        } catch (err) {
+            setError(err.message || 'Failed to load policies');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleInputChange = (field, value) => {
+    useEffect(() => { fetchPolicies(); }, []);
+
+    const handleNew = () => {
+        setIsNew(true);
+        setSelectedPolicy(null);
+        setFormData({ policy_title: '', policy_category: '', policy_description: '', visibility_settings: [], policy_status: 'Active', policy_version: '1.0', effective_date: '' });
+        setShowDialog(true);
+    };
+
+    const handleEdit = (policy) => {
+        setIsNew(false);
+        setSelectedPolicy(policy);
+        let vis = [];
+        try { vis = typeof policy.visibility_settings === 'string' ? JSON.parse(policy.visibility_settings) : (policy.visibility_settings || []); } catch {}
+        setFormData({
+            policy_title: policy.policy_title || '',
+            policy_category: policy.policy_category || '',
+            policy_description: policy.policy_description || '',
+            visibility_settings: vis,
+            policy_status: policy.policy_status || 'Active',
+            policy_version: policy.policy_version || '1.0',
+            effective_date: policy.effective_date ? policy.effective_date.split('T')[0] : ''
+        });
+        setShowDialog(true);
+    };
+
+    const handleSave = async () => {
+        setSaving(true);
+        let res;
+        if (isNew) {
+            res = await adminService.addCompanyPolicy(formData);
+        } else {
+            res = await adminService.updateCompanyPolicy(selectedPolicy.policy_id, formData);
+        }
+        setSaving(false);
+        if (res.success) {
+            setShowDialog(false);
+            fetchPolicies();
+        } else {
+            setError(res.error || 'Failed to save policy');
+        }
+    };
+
+    const handleDelete = async (policy) => {
+        if (!window.confirm(`Delete "${policy.policy_title}"?`)) return;
+        const res = await adminService.deleteCompanyPolicy(policy.policy_id);
+        if (res.success) {
+            fetchPolicies();
+        } else {
+            setError(res.error || 'Failed to delete policy');
+        }
+    };
+
+    const toggleVisibility = (role) => {
         setFormData(prev => ({
             ...prev,
-            [field]: value
+            visibility_settings: prev.visibility_settings.includes(role)
+                ? prev.visibility_settings.filter(r => r !== role)
+                : [...prev.visibility_settings, role]
         }));
     };
 
-    const handleNewPolicy = () => {
-        setIsNewPolicy(true);
-        setSelectedPolicy(null);
-        resetForm();
-        setShowPolicyDialog(true);
+    const getVisibility = (policy) => {
+        try { return typeof policy.visibility_settings === 'string' ? JSON.parse(policy.visibility_settings) : (policy.visibility_settings || []); } catch { return []; }
     };
-
-    const handleEditPolicy = (policy) => {
-        setIsNewPolicy(false);
-        setSelectedPolicy(policy);
-        setFormData({
-            title: policy.title,
-            category: policy.category,
-            description: policy.description,
-            visibility: policy.visibility,
-            isActive: policy.isActive,
-            requiresAcknowledgment: policy.requiresAcknowledgment
-        });
-        setShowPolicyDialog(true);
-    };
-
-    const handleViewPolicy = (policy) => {
-        setSelectedPolicy(policy);
-        setShowViewDialog(true);
-    };
-
-    const handleSavePolicy = () => {
-        if (isNewPolicy) {
-            const newPolicy = {
-                id: policies.length + 1,
-                ...formData,
-                uploadedBy: user?.name || 'HR Admin',
-                uploadedOn: new Date().toISOString().split('T')[0],
-                fileSize: '1.0 MB',
-                fileType: 'PDF',
-                acknowledgedBy: []
-            };
-            setPolicies(prev => [...prev, newPolicy]);
-        } else {
-            setPolicies(prev => prev.map(policy => 
-                policy.id === selectedPolicy.id 
-                    ? { ...policy, ...formData }
-                    : policy
-            ));
-        }
-        setShowPolicyDialog(false);
-        resetForm();
-    };
-
-    const handleAcknowledgePolicy = (policyId) => {
-        setPolicies(prev => prev.map(policy => 
-            policy.id === policyId 
-                ? {
-                    ...policy,
-                    acknowledgedBy: [...policy.acknowledgedBy, 'EMP001'] // Mock current user
-                }
-                : policy
-        ));
-    };
-
-    const resetForm = () => {
-        setFormData({
-            title: '',
-            category: '',
-            description: '',
-            visibility: [],
-            isActive: true,
-            requiresAcknowledgment: false
-        });
-    };
-
-    const policyCategories = [
-        'HR Policy',
-        'Leave Policy',
-        'IT Policy',
-        'Finance Policy',
-        'Safety Policy',
-        'Compliance Policy'
-    ];
-
-    const visibilityOptions = ['Employee', 'Manager', 'HR'];
-
-    const filteredPolicies = getFilteredPolicies();
-    const isHR = user?.role === 'HR';
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-            {/* Quick Info */}
-            <Box sx={{ mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            {isHR ? 'Company Policy Management' : 'Company Policies'}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            {isHR ? 
-                                'Manage and distribute company policies and documents' :
-                                'View company policies and acknowledge receipt'}
-                        </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1}>
-                        <Button
-                            variant="outlined"
-                            startIcon={<RefreshIcon />}
-                            onClick={() => setPolicies(mockPolicies)}
-                            size="small"
-                        >
-                            Refresh
-                        </Button>
-                        {isHR && (
-                            <>
-                                <Button
-                                    variant="outlined"
-                                    startIcon={<UploadIcon />}
-                                    size="small"
-                                >
-                                    Upload
-                                </Button>
-                                <Button
-                                    variant="contained"
-                                    startIcon={<AddIcon />}
-                                    onClick={handleNewPolicy}
-                                >
-                                    Add Policy
-                                </Button>
-                            </>
-                        )}
-                    </Stack>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        {isHR ? 'Company Policy Management' : 'Company Policies'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        {isHR ? 'Manage and distribute company policies' : 'View company policies'}
+                    </Typography>
                 </Box>
+                <Stack direction="row" spacing={1}>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchPolicies} size="small">Refresh</Button>
+                    {isHR && (
+                        <Button variant="contained" startIcon={<AddIcon />} onClick={handleNew}>Add Policy</Button>
+                    )}
+                </Stack>
             </Box>
+
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
             {/* Summary Cards */}
-            <Box sx={{ display: 'flex', gap: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 }, flexWrap: 'wrap' }}>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="primary.main" sx={{ fontWeight: 700 }}>
-                            {filteredPolicies.length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Available Policies
-                        </Typography>
+            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                <Card sx={{ flex: '1 1 180px' }}>
+                    <CardContent>
+                        <Typography variant="h4" color="primary.main" fontWeight={700}>{policies.length}</Typography>
+                        <Typography variant="body2" color="text.secondary">Total Policies</Typography>
                     </CardContent>
                 </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="success.main" sx={{ fontWeight: 700 }}>
-                            {filteredPolicies.filter(p => p.acknowledgedBy.includes('EMP001')).length}
+                <Card sx={{ flex: '1 1 180px' }}>
+                    <CardContent>
+                        <Typography variant="h4" color="success.main" fontWeight={700}>
+                            {policies.filter(p => p.policy_status === 'Active').length}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Acknowledged
-                        </Typography>
+                        <Typography variant="body2" color="text.secondary">Active</Typography>
                     </CardContent>
                 </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="warning.main" sx={{ fontWeight: 700 }}>
-                            {filteredPolicies.filter(p => p.requiresAcknowledgment && !p.acknowledgedBy.includes('EMP001')).length}
+                <Card sx={{ flex: '1 1 180px' }}>
+                    <CardContent>
+                        <Typography variant="h4" color="warning.main" fontWeight={700}>
+                            {policies.filter(p => p.policy_status !== 'Active').length}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Pending Action
-                        </Typography>
+                        <Typography variant="body2" color="text.secondary">Inactive</Typography>
                     </CardContent>
                 </Card>
             </Box>
 
-            {/* Policies Table */}
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>
@@ -313,300 +191,183 @@ const CompanyPolicies = () => {
                             <TableCell sx={{ fontWeight: 600 }}>Description</TableCell>
                             {isHR && <TableCell sx={{ fontWeight: 600 }}>Visibility</TableCell>}
                             <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Uploaded On</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Version</TableCell>
                             <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {filteredPolicies.map((policy) => {
-                            const isAcknowledged = policy.acknowledgedBy.includes('EMP001');
-                            const needsAcknowledgment = policy.requiresAcknowledgment && !isAcknowledged;
-
-                            return (
-                                <TableRow key={policy.id} hover>
+                        {loading ? (
+                            <TableRow><TableCell colSpan={7} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                        ) : policies.length === 0 ? (
+                            <TableRow><TableCell colSpan={7} align="center">No policies found</TableCell></TableRow>
+                        ) : policies.map((policy) => (
+                            <TableRow key={policy.policy_id} hover>
+                                <TableCell>
+                                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                        <PolicyIcon sx={{ mr: 1.5, color: 'text.secondary' }} />
+                                        <Typography variant="body2" fontWeight={600}>{policy.policy_title}</Typography>
+                                    </Box>
+                                </TableCell>
+                                <TableCell><Chip label={policy.policy_category} size="small" /></TableCell>
+                                <TableCell>
+                                    <Typography variant="body2" sx={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {policy.policy_description}
+                                    </Typography>
+                                </TableCell>
+                                {isHR && (
                                     <TableCell>
-                                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                            <PolicyIcon sx={{ mr: 2, color: 'text.secondary' }} />
-                                            <Box>
-                                                <Typography variant="body2" fontWeight={600}>
-                                                    {policy.title}
-                                                </Typography>
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {policy.fileType} • {policy.fileSize}
-                                                </Typography>
-                                            </Box>
+                                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                            {getVisibility(policy).map(role => (
+                                                <Chip key={role} label={role} size="small" variant="outlined" />
+                                            ))}
                                         </Box>
                                     </TableCell>
-                                    <TableCell>
-                                        <Chip label={policy.category} size="small" />
-                                    </TableCell>
-                                    <TableCell>
-                                        <Typography variant="body2">
-                                            {policy.description}
-                                        </Typography>
-                                    </TableCell>
-                                    {isHR && (
-                                        <TableCell>
-                                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                                {policy.visibility.map((role) => (
-                                                    <Chip
-                                                        key={role}
-                                                        label={role}
-                                                        size="small"
-                                                        variant="outlined"
-                                                    />
-                                                ))}
-                                            </Box>
-                                        </TableCell>
-                                    )}
-                                    <TableCell>
-                                        <Stack spacing={0.5}>
-                                            <Chip
-                                                label={policy.isActive ? 'Active' : 'Inactive'}
-                                                color={policy.isActive ? 'success' : 'default'}
-                                                size="small"
-                                            />
-                                            {policy.requiresAcknowledgment && (
-                                                <Chip
-                                                    label={isAcknowledged ? 'Acknowledged' : 'Pending'}
-                                                    color={isAcknowledged ? 'success' : 'warning'}
-                                                    size="small"
-                                                    icon={isAcknowledged ? <CheckIcon /> : undefined}
-                                                />
-                                            )}
-                                        </Stack>
-                                    </TableCell>
-                                    <TableCell>
-                                        <Typography variant="body2">
-                                            {new Date(policy.uploadedOn).toLocaleDateString('en-IN')}
-                                        </Typography>
-                                    </TableCell>
-                                    <TableCell align="right">
-                                        <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                            <IconButton size="small" onClick={() => handleViewPolicy(policy)}>
-                                                <ViewIcon />
-                                            </IconButton>
-                                            <IconButton size="small">
-                                                <DownloadIcon />
-                                            </IconButton>
-                                            {isHR && (
-                                                <>
-                                                    <IconButton size="small" onClick={() => handleEditPolicy(policy)}>
-                                                        <EditIcon />
-                                                    </IconButton>
-                                                    <IconButton size="small" color="error">
-                                                        <DeleteIcon />
-                                                    </IconButton>
-                                                </>
-                                            )}
-                                            {needsAcknowledgment && (
-                                                <Button
-                                                    size="small"
-                                                    variant="contained"
-                                                    onClick={() => handleAcknowledgePolicy(policy.id)}
-                                                >
-                                                    Acknowledge
-                                                </Button>
-                                            )}
-                                        </Stack>
-                                    </TableCell>
-                                </TableRow>
-                            );
-                        })}
+                                )}
+                                <TableCell>
+                                    <Chip
+                                        label={policy.policy_status || 'Active'}
+                                        color={policy.policy_status === 'Active' ? 'success' : 'default'}
+                                        size="small"
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    <Typography variant="body2">{policy.policy_version || '1.0'}</Typography>
+                                </TableCell>
+                                <TableCell align="right">
+                                    <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                        <IconButton size="small" onClick={() => { setSelectedPolicy(policy); setShowViewDialog(true); }}>
+                                            <ViewIcon />
+                                        </IconButton>
+                                        {isHR && (
+                                            <>
+                                                <IconButton size="small" onClick={() => handleEdit(policy)}><EditIcon /></IconButton>
+                                                <IconButton size="small" color="error" onClick={() => handleDelete(policy)}><DeleteIcon /></IconButton>
+                                            </>
+                                        )}
+                                    </Stack>
+                                </TableCell>
+                            </TableRow>
+                        ))}
                     </TableBody>
                 </Table>
             </TableContainer>
 
-            {/* Policy Dialog (HR Only) */}
-            {isHR && (
-                <Dialog open={showPolicyDialog} onClose={() => setShowPolicyDialog(false)} maxWidth="md" fullWidth>
-                    <DialogTitle>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <PolicyIcon />
-                            {isNewPolicy ? 'Add New Policy' : `Edit Policy - ${selectedPolicy?.title}`}
+            {/* Add/Edit Dialog */}
+            <Dialog open={showDialog} onClose={() => setShowDialog(false)} maxWidth="md" fullWidth>
+                <DialogTitle>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <PolicyIcon />
+                        {isNew ? 'Add New Policy' : `Edit Policy`}
+                    </Box>
+                </DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, mt: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+                            <TextField
+                                fullWidth label="Policy Title"
+                                value={formData.policy_title}
+                                onChange={e => setFormData(p => ({ ...p, policy_title: e.target.value }))}
+                            />
+                            <FormControl fullWidth>
+                                <InputLabel>Category</InputLabel>
+                                <Select value={formData.policy_category} label="Category"
+                                    onChange={e => setFormData(p => ({ ...p, policy_category: e.target.value }))}>
+                                    {POLICY_CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                                </Select>
+                            </FormControl>
                         </Box>
-                    </DialogTitle>
-                    <DialogContent>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                            {/* Basic Information */}
-                            <Box>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                    Policy Information
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 2, mb: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                                    <TextField
-                                        fullWidth
-                                        label="Policy Title"
-                                        value={formData.title}
-                                        onChange={(e) => handleInputChange('title', e.target.value)}
-                                        placeholder="e.g., Employee Code of Conduct"
-                                    />
-                                    <FormControl fullWidth>
-                                        <InputLabel>Category</InputLabel>
-                                        <Select
-                                            value={formData.category}
-                                            label="Category"
-                                            onChange={(e) => handleInputChange('category', e.target.value)}
-                                        >
-                                            {policyCategories.map((category) => (
-                                                <MenuItem key={category} value={category}>{category}</MenuItem>
-                                            ))}
-                                        </Select>
-                                    </FormControl>
-                                </Box>
-                                <TextField
-                                    fullWidth
-                                    label="Description"
-                                    value={formData.description}
-                                    onChange={(e) => handleInputChange('description', e.target.value)}
-                                    placeholder="Brief description of the policy"
-                                    multiline
-                                    rows={2}
-                                />
-                            </Box>
-
-                            <Divider />
-
-                            {/* Visibility Settings */}
-                            <Box>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                    Visibility & Access
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    Select which roles can view this policy
-                                </Typography>
-                                <List>
-                                    {visibilityOptions.map((role) => (
-                                        <ListItem key={role} sx={{ px: 0 }}>
-                                            <ListItemIcon>
-                                                <Checkbox
-                                                    checked={formData.visibility.includes(role)}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            handleInputChange('visibility', [...formData.visibility, role]);
-                                                        } else {
-                                                            handleInputChange('visibility', formData.visibility.filter(r => r !== role));
-                                                        }
-                                                    }}
-                                                />
-                                            </ListItemIcon>
-                                            <ListItemText primary={role} />
-                                        </ListItem>
-                                    ))}
-                                </List>
-                            </Box>
-
-                            <Divider />
-
-                            {/* Settings */}
-                            <Box>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                    Policy Settings
-                                </Typography>
-                                <Stack spacing={2}>
-                                    <FormControlLabel
-                                        control={
-                                            <Switch
-                                                checked={formData.isActive}
-                                                onChange={(e) => handleInputChange('isActive', e.target.checked)}
-                                            />
-                                        }
-                                        label="Active Policy"
-                                    />
-                                    <FormControlLabel
-                                        control={
-                                            <Switch
-                                                checked={formData.requiresAcknowledgment}
-                                                onChange={(e) => handleInputChange('requiresAcknowledgment', e.target.checked)}
-                                            />
-                                        }
-                                        label="Requires Employee Acknowledgment"
-                                    />
-                                </Stack>
-                            </Box>
+                        <TextField
+                            fullWidth label="Description" multiline rows={2}
+                            value={formData.policy_description}
+                            onChange={e => setFormData(p => ({ ...p, policy_description: e.target.value }))}
+                        />
+                        <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+                            <TextField
+                                fullWidth label="Version"
+                                value={formData.policy_version}
+                                onChange={e => setFormData(p => ({ ...p, policy_version: e.target.value }))}
+                            />
+                            <TextField
+                                fullWidth label="Effective Date" type="date"
+                                value={formData.effective_date}
+                                onChange={e => setFormData(p => ({ ...p, effective_date: e.target.value }))}
+                                InputLabelProps={{ shrink: true }}
+                            />
+                            <FormControl fullWidth>
+                                <InputLabel>Status</InputLabel>
+                                <Select value={formData.policy_status} label="Status"
+                                    onChange={e => setFormData(p => ({ ...p, policy_status: e.target.value }))}>
+                                    <MenuItem value="Active">Active</MenuItem>
+                                    <MenuItem value="Inactive">Inactive</MenuItem>
+                                    <MenuItem value="Draft">Draft</MenuItem>
+                                </Select>
+                            </FormControl>
                         </Box>
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={() => setShowPolicyDialog(false)}>Cancel</Button>
-                        <Button 
-                            variant="contained" 
-                            onClick={handleSavePolicy}
-                            disabled={!formData.title || !formData.category || formData.visibility.length === 0}
-                        >
-                            {isNewPolicy ? 'Add Policy' : 'Update Policy'}
-                        </Button>
-                    </DialogActions>
-                </Dialog>
-            )}
+                        <Divider />
+                        <Box>
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>Visibility (who can see this policy)</Typography>
+                            <List dense>
+                                {VISIBILITY_OPTIONS.map(role => (
+                                    <ListItem key={role} sx={{ px: 0 }}>
+                                        <ListItemIcon>
+                                            <Checkbox
+                                                checked={formData.visibility_settings.includes(role)}
+                                                onChange={() => toggleVisibility(role)}
+                                            />
+                                        </ListItemIcon>
+                                        <ListItemText primary={role} />
+                                    </ListItem>
+                                ))}
+                            </List>
+                        </Box>
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowDialog(false)}>Cancel</Button>
+                    <Button
+                        variant="contained" onClick={handleSave} disabled={saving || !formData.policy_title || !formData.policy_category}
+                    >
+                        {saving ? <CircularProgress size={20} /> : isNew ? 'Add Policy' : 'Update Policy'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
-            {/* Policy View Dialog */}
+            {/* View Dialog */}
             <Dialog open={showViewDialog} onClose={() => setShowViewDialog(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <DocumentIcon />
-                        Policy Details
+                        <DocumentIcon /> Policy Details
                     </Box>
                 </DialogTitle>
                 <DialogContent>
                     {selectedPolicy && (
                         <Box sx={{ mt: 1 }}>
-                            <Typography variant="h6" sx={{ mb: 2 }}>
-                                {selectedPolicy.title}
-                            </Typography>
-                            
-                            <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" color="text.secondary">Category</Typography>
-                                <Typography variant="body1">{selectedPolicy.category}</Typography>
-                            </Box>
-
-                            <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" color="text.secondary">Description</Typography>
-                                <Typography variant="body1">{selectedPolicy.description}</Typography>
-                            </Box>
-
-                            <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" color="text.secondary">File Information</Typography>
-                                <Typography variant="body1">
-                                    {selectedPolicy.fileType} • {selectedPolicy.fileSize}
-                                </Typography>
-                            </Box>
-
-                            <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" color="text.secondary">Uploaded</Typography>
-                                <Typography variant="body1">
-                                    {new Date(selectedPolicy.uploadedOn).toLocaleDateString('en-IN')} by {selectedPolicy.uploadedBy}
-                                </Typography>
-                            </Box>
-
-                            {selectedPolicy.requiresAcknowledgment && (
-                                <Alert 
-                                    severity={selectedPolicy.acknowledgedBy.includes('EMP001') ? 'success' : 'warning'}
-                                    sx={{ mt: 2 }}
-                                >
-                                    {selectedPolicy.acknowledgedBy.includes('EMP001') 
-                                        ? 'You have acknowledged this policy'
-                                        : 'This policy requires your acknowledgment'}
-                                </Alert>
+                            <Typography variant="h6" sx={{ mb: 2 }}>{selectedPolicy.policy_title}</Typography>
+                            {[
+                                ['Category', selectedPolicy.policy_category],
+                                ['Description', selectedPolicy.policy_description],
+                                ['Version', selectedPolicy.policy_version],
+                                ['Status', selectedPolicy.policy_status],
+                                ['Effective Date', selectedPolicy.effective_date ? new Date(selectedPolicy.effective_date).toLocaleDateString('en-IN') : '—'],
+                            ].map(([label, val]) => (
+                                <Box key={label} sx={{ mb: 1.5 }}>
+                                    <Typography variant="body2" color="text.secondary">{label}</Typography>
+                                    <Typography variant="body1">{val || '—'}</Typography>
+                                </Box>
+                            ))}
+                            {isHR && (
+                                <Box sx={{ mb: 1.5 }}>
+                                    <Typography variant="body2" color="text.secondary">Visibility</Typography>
+                                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                                        {getVisibility(selectedPolicy).map(r => <Chip key={r} label={r} size="small" />)}
+                                    </Box>
+                                </Box>
                             )}
                         </Box>
                     )}
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setShowViewDialog(false)}>Close</Button>
-                    <Button startIcon={<DownloadIcon />} variant="outlined">
-                        Download
-                    </Button>
-                    {selectedPolicy?.requiresAcknowledgment && !selectedPolicy?.acknowledgedBy.includes('EMP001') && (
-                        <Button 
-                            variant="contained" 
-                            onClick={() => {
-                                handleAcknowledgePolicy(selectedPolicy.id);
-                                setShowViewDialog(false);
-                            }}
-                        >
-                            Acknowledge
-                        </Button>
-                    )}
                 </DialogActions>
             </Dialog>
         </Box>

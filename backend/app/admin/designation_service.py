@@ -1,5 +1,5 @@
 from flask import current_app
-from app.database.executor import StoredProcedureExecutor
+from app.database.multi_tenant_executor import MultiTenantExecutor
 
 
 class DesignationService:
@@ -15,7 +15,7 @@ class DesignationService:
         """
         try:
             parameters = {'action': 'LIST'}
-            result = StoredProcedureExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
             
             if result["success"]:
                 return {
@@ -57,7 +57,7 @@ class DesignationService:
                 'role_code': role_code
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -107,7 +107,7 @@ class DesignationService:
                 'role_code': role_code
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -155,7 +155,7 @@ class DesignationService:
                 'mapping_id': mapping_id
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_manage_designation_role_mapping', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -196,7 +196,7 @@ class DesignationService:
         """
         try:
             # Get roles from the roles table
-            result = StoredProcedureExecutor.execute_procedure('proc_list_roles')
+            result = MultiTenantExecutor.execute_procedure('proc_list_roles')
             
             if result["success"]:
                 # Filter to only show HR, MANAGER, EMPLOYEE roles

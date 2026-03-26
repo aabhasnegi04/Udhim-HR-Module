@@ -19,6 +19,7 @@ import {
   Tab,
   Switch,
   FormControlLabel,
+  Alert,
 } from '@mui/material';
 import {
   CheckCircle,
@@ -37,6 +38,7 @@ import {
   getKioskSettings,
   listKiosks,
   updateKiosk,
+  createKiosk,
 } from '../services/attendanceService';
 
 const Kiosk = () => {
@@ -79,6 +81,17 @@ const Kiosk = () => {
   const newPinInputRefs = useRef([]);
   const confirmPinInputRefs = useRef([]);
   
+  // Create kiosk dialog
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createForm, setCreateForm] = useState({ kiosk_name: '', kiosk_location: '', kiosk_pin: '' });
+  const [createError, setCreateError] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
+
+  // Edit kiosk dialog
+  const [editForm, setEditForm] = useState({ kiosk_name: '', kiosk_location: '' });
+  const [editError, setEditError] = useState('');
+  const [editLoading, setEditLoading] = useState(false);
+
   // Live time
   const [currentTime, setCurrentTime] = useState(new Date());
   
@@ -225,6 +238,60 @@ const Kiosk = () => {
     setShowAdminPanel(false);
     setIsAuthenticated(false);
     setAdminTab(0);
+  };
+  
+  const handleOpenCreateDialog = () => {
+    setCreateForm({ kiosk_name: '', kiosk_location: '', kiosk_pin: '' });
+    setCreateError('');
+    setShowCreateDialog(true);
+  };
+
+  const handleCreateKiosk = async () => {
+    setCreateError('');
+    if (!createForm.kiosk_name.trim()) { setCreateError('Kiosk name is required'); return; }
+    if (!createForm.kiosk_location.trim()) { setCreateError('Location is required'); return; }
+    if (!/^\d{4}$/.test(createForm.kiosk_pin)) { setCreateError('PIN must be exactly 4 digits'); return; }
+    setCreateLoading(true);
+    try {
+      const res = await createKiosk(createForm.kiosk_name, createForm.kiosk_location, createForm.kiosk_pin);
+      if (res.success) {
+        setShowCreateDialog(false);
+        await loadAllKiosks();
+      } else {
+        setCreateError(res.message || 'Failed to create kiosk');
+      }
+    } catch {
+      setCreateError('Failed to create kiosk');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleOpenEditDialog = (kiosk) => {
+    setEditingKiosk(kiosk);
+    setEditForm({ kiosk_name: kiosk.kiosk_name, kiosk_location: kiosk.kiosk_location });
+    setEditError('');
+    setShowEditDialog(true);
+  };
+
+  const handleEditKiosk = async () => {
+    setEditError('');
+    if (!editForm.kiosk_name.trim()) { setEditError('Kiosk name is required'); return; }
+    if (!editForm.kiosk_location.trim()) { setEditError('Location is required'); return; }
+    setEditLoading(true);
+    try {
+      const res = await updateKiosk(editingKiosk.kiosk_id, editForm.kiosk_name, editForm.kiosk_location);
+      if (res.success) {
+        setShowEditDialog(false);
+        await loadAllKiosks();
+      } else {
+        setEditError(res.message || 'Failed to update kiosk');
+      }
+    } catch {
+      setEditError('Failed to update kiosk');
+    } finally {
+      setEditLoading(false);
+    }
   };
   
   const handleChangePin = async () => {
@@ -1446,7 +1513,7 @@ const Kiosk = () => {
                         boxShadow: 'none',
                         '&:hover': { bgcolor: '#15803d', boxShadow: 'none' }
                       }}
-                      onClick={() => alert('Create kiosk feature coming soon')}
+                      onClick={handleOpenCreateDialog}
                     >
                       New Kiosk
                     </Button>
@@ -1496,7 +1563,7 @@ const Kiosk = () => {
                             <TableCell sx={{ borderBottom: '1px solid #e5e5e5' }}>
                               <IconButton
                                 size="small"
-                                onClick={() => alert('Edit kiosk feature coming soon')}
+                                onClick={() => handleOpenEditDialog(kiosk)}
                                 sx={{ color: '#737373', '&:hover': { color: '#171717', bgcolor: '#f5f5f5' } }}
                               >
                                 <EditIcon fontSize="small" />
@@ -1523,6 +1590,101 @@ const Kiosk = () => {
         </DialogActions>
       </Dialog>
       
+      {/* Create Kiosk Dialog */}
+      <Dialog
+        open={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{ paper: { sx: { bgcolor: '#ffffff', border: '1px solid #e5e5e5', borderRadius: 1 } } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#fafafa', color: '#171717', borderBottom: '1px solid #e5e5e5' }}>
+          NEW KIOSK
+          <IconButton onClick={() => setShowCreateDialog(false)} sx={{ position: 'absolute', right: 8, top: 8, color: '#737373' }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ bgcolor: '#ffffff', pt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {createError && <Alert severity="error" sx={{ borderRadius: 1 }}>{createError}</Alert>}
+          <TextField
+            label="Kiosk Name"
+            value={createForm.kiosk_name}
+            onChange={(e) => setCreateForm(f => ({ ...f, kiosk_name: e.target.value }))}
+            fullWidth size="small"
+            sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fafafa' } }}
+          />
+          <TextField
+            label="Location"
+            value={createForm.kiosk_location}
+            onChange={(e) => setCreateForm(f => ({ ...f, kiosk_location: e.target.value }))}
+            fullWidth size="small"
+            sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fafafa' } }}
+          />
+          <TextField
+            label="PIN (4 digits)"
+            value={createForm.kiosk_pin}
+            onChange={(e) => { if (/^\d{0,4}$/.test(e.target.value)) setCreateForm(f => ({ ...f, kiosk_pin: e.target.value })); }}
+            fullWidth size="small" type="password" inputProps={{ maxLength: 4 }}
+            sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fafafa' } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ bgcolor: '#ffffff', borderTop: '1px solid #e5e5e5', p: 2 }}>
+          <Button onClick={() => setShowCreateDialog(false)} sx={{ color: '#737373', textTransform: 'uppercase', fontWeight: 600 }}>Cancel</Button>
+          <Button
+            onClick={handleCreateKiosk}
+            variant="contained"
+            disabled={createLoading}
+            sx={{ bgcolor: '#16a34a', color: '#fff', textTransform: 'uppercase', fontWeight: 600, boxShadow: 'none', '&:hover': { bgcolor: '#15803d', boxShadow: 'none' } }}
+          >
+            {createLoading ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Kiosk Dialog */}
+      <Dialog
+        open={showEditDialog}
+        onClose={() => setShowEditDialog(false)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{ paper: { sx: { bgcolor: '#ffffff', border: '1px solid #e5e5e5', borderRadius: 1 } } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#fafafa', color: '#171717', borderBottom: '1px solid #e5e5e5' }}>
+          EDIT KIOSK
+          <IconButton onClick={() => setShowEditDialog(false)} sx={{ position: 'absolute', right: 8, top: 8, color: '#737373' }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ bgcolor: '#ffffff', pt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {editError && <Alert severity="error" sx={{ borderRadius: 1 }}>{editError}</Alert>}
+          <TextField
+            label="Kiosk Name"
+            value={editForm.kiosk_name}
+            onChange={(e) => setEditForm(f => ({ ...f, kiosk_name: e.target.value }))}
+            fullWidth size="small"
+            sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fafafa' } }}
+          />
+          <TextField
+            label="Location"
+            value={editForm.kiosk_location}
+            onChange={(e) => setEditForm(f => ({ ...f, kiosk_location: e.target.value }))}
+            fullWidth size="small"
+            sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fafafa' } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ bgcolor: '#ffffff', borderTop: '1px solid #e5e5e5', p: 2 }}>
+          <Button onClick={() => setShowEditDialog(false)} sx={{ color: '#737373', textTransform: 'uppercase', fontWeight: 600 }}>Cancel</Button>
+          <Button
+            onClick={handleEditKiosk}
+            variant="contained"
+            disabled={editLoading}
+            sx={{ bgcolor: '#16a34a', color: '#fff', textTransform: 'uppercase', fontWeight: 600, boxShadow: 'none', '&:hover': { bgcolor: '#15803d', boxShadow: 'none' } }}
+          >
+            {editLoading ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Change PIN Dialog */}
       <Dialog
         open={showChangePinDialog}

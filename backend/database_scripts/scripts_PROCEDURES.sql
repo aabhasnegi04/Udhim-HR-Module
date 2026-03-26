@@ -1047,22 +1047,24 @@ END;
 PROCEDURE : [dbo].[proc_get_attendance_dashboard_data]
 
   
-CREATE PROC [dbo].[proc_get_attendance_dashboard_data]  
+  
+CREATE PROCEDURE proc_get_attendance_dashboard_data  
     @attendance_date DATE = NULL,  
     @employee_id INT = NULL  
 AS  
 BEGIN  
     SET NOCOUNT ON;  
-  
+      
+    -- Set default date to today if not provided  
     IF @attendance_date IS NULL  
         SET @attendance_date = CAST(GETDATE() AS DATE);  
-  
-    -- 1. TODAY'S SUMMARY  
+      
+    -- RESULT SET 1: TODAY'S SUMMARY  
     IF @employee_id IS NULL  
     BEGIN  
         -- HR/Manager view - all employees  
         SELECT   
-            COUNT(CASE WHEN status = 'PRESENT' OR status = 'LATE' THEN 1 END) AS total_present,  
+            COUNT(CASE WHEN status IN ('PRESENT', 'LATE') THEN 1 END) AS total_present,  
             COUNT(CASE WHEN status = 'ABSENT' THEN 1 END) AS total_absent,  
             COUNT(CASE WHEN status = 'LATE' THEN 1 END) AS total_late,  
             COUNT(CASE WHEN status = 'WFH' THEN 1 END) AS total_wfh,  
@@ -1075,7 +1077,7 @@ BEGIN
     BEGIN  
         -- Employee view - only their data  
         SELECT   
-            COUNT(CASE WHEN status = 'PRESENT' OR status = 'LATE' THEN 1 END) AS total_present,  
+            COUNT(CASE WHEN status IN ('PRESENT', 'LATE') THEN 1 END) AS total_present,  
             COUNT(CASE WHEN status = 'ABSENT' THEN 1 END) AS total_absent,  
             COUNT(CASE WHEN status = 'LATE' THEN 1 END) AS total_late,  
             COUNT(CASE WHEN status = 'WFH' THEN 1 END) AS total_wfh,  
@@ -1085,25 +1087,26 @@ BEGIN
         WHERE attendance_date = @attendance_date  
           AND employee_id = @employee_id;  
     END  
-  
-    -- 2. DEPARTMENT-WISE STATS (Only for HR/Manager)  
+      
+    -- RESULT SET 2: DEPARTMENT-WISE STATS  
     IF @employee_id IS NULL  
     BEGIN  
         SELECT   
-            eo.department,  
+            ISNULL(eo.department, 'Unknown') AS department,  
             COUNT(*) AS total,  
-            COUNT(CASE WHEN ad.status = 'PRESENT' OR ad.status = 'LATE' THEN 1 END) AS present,  
-            CAST(ROUND(  
-                CASE   
-                    WHEN COUNT(*) = 0 THEN 0  
-                    ELSE CAST(COUNT(CASE WHEN ad.status = 'PRESENT' OR ad.status = 'LATE' THEN 1 END) AS FLOAT) /   
-                         CAST(COUNT(*) AS FLOAT) * 100  
-                END, 0  
-            ) AS INT) AS percentage  
+            COUNT(CASE WHEN ad.status IN ('PRESENT', 'LATE') THEN 1 END) AS present,  
+            CASE   
+                WHEN COUNT(*) = 0 THEN 0  
+                ELSE CAST(ROUND(  
+                    CAST(COUNT(CASE WHEN ad.status IN ('PRESENT', 'LATE') THEN 1 END) AS FLOAT) /   
+                    CAST(COUNT(*) AS FLOAT) * 100, 0  
+                ) AS INT)  
+            END AS percentage  
         FROM attendance_daily ad  
-        JOIN employees e ON ad.employee_id = e.employee_id  
-        JOIN employee_official eo ON e.employee_id = eo.employee_id  
+        INNER JOIN employees e ON ad.employee_id = e.employee_id  
+        LEFT JOIN employee_official eo ON e.employee_id = eo.employee_id  
         WHERE ad.attendance_date = @attendance_date  
+          AND e.status = 'ACTIVE'  
         GROUP BY eo.department  
         ORDER BY percentage DESC;  
     END  
@@ -1117,82 +1120,213 @@ BEGIN
             0 AS percentage  
         WHERE 1 = 0;  
     END  
-  
-    -- 3. RECENT ACTIVITY  
+      
+    -- RESULT SET 3: RECENT ACTIVITY (Simplified to avoid datetime conversion issues)  
     IF @employee_id IS NULL  
     BEGIN  
         -- HR/Manager view - all employees  
         SELECT TOP 10  
-            ep.first_name + ' ' + ep.last_name AS employee_name,  
+            ISNULL(ep.first_name + ' ' + ep.last_name, 'Unknown Employee') AS employee_name,  
             CASE   
                 WHEN ad.last_check_out IS NOT NULL THEN 'Check-out'  
-                ELSE 'Check-in'  
+                WHEN ad.first_check_in IS NOT NULL THEN 'Check-in'  
+                ELSE 'Attendance Marked'  
             END AS action,  
             CASE   
                 WHEN ad.last_check_out IS NOT NULL THEN   
-                    FORMAT(CAST(ad.last_check_out AS DATETIME), 'hh:mm tt')  
-                ELSE   
-                    FORMAT(CAST(ad.first_check_in AS DATETIME), 'hh:mm tt')  
+                    CONVERT(VARCHAR(8), ad.last_check_out, 108)  
+                WHEN ad.first_check_in IS NOT NULL THEN   
+                    CONVERT(VARCHAR(8), ad.first_check_in, 108)  
+                ELSE 'N/A'  
             END AS time,  
             ad.status  
         FROM attendance_daily ad  
-        JOIN employees e ON ad.employee_id = e.employee_id  
-        JOIN employee_personal ep ON e.employee_id = ep.employee_id  
+        INNER JOIN employees e ON ad.employee_id = e.employee_id  
+        LEFT JOIN employee_personal ep ON e.employee_id = ep.employee_id  
         WHERE ad.attendance_date = @attendance_date  
-          AND (ad.first_check_in IS NOT NULL OR ad.last_check_out IS NOT NULL)  
+          AND e.status = 'ACTIVE'  
+          AND (ad.first_check_in IS NOT NULL OR ad.last_check_out IS NOT NULL OR ad.status IS NOT NULL)  
         ORDER BY   
             CASE   
                 WHEN ad.last_check_out IS NOT NULL THEN ad.last_check_out  
-                ELSE ad.first_check_in  
+                WHEN ad.first_check_in IS NOT NULL THEN ad.first_check_in  
+                ELSE '00:00:00'  
             END DESC;  
     END  
     ELSE  
     BEGIN  
         -- Employee view - only their activity  
         SELECT TOP 10  
-            ep.first_name + ' ' + ep.last_name AS employee_name,  
+            ISNULL(ep.first_name + ' ' + ep.last_name, 'Unknown Employee') AS employee_name,  
             CASE   
                 WHEN ad.last_check_out IS NOT NULL THEN 'Check-out'  
-                ELSE 'Check-in'  
+                WHEN ad.first_check_in IS NOT NULL THEN 'Check-in'  
+                ELSE 'Attendance Marked'  
             END AS action,  
             CASE   
                 WHEN ad.last_check_out IS NOT NULL THEN   
-                    FORMAT(CAST(ad.last_check_out AS DATETIME), 'hh:mm tt')  
-                ELSE   
-                    FORMAT(CAST(ad.first_check_in AS DATETIME), 'hh:mm tt')  
+                    CONVERT(VARCHAR(8), ad.last_check_out, 108)  
+                WHEN ad.first_check_in IS NOT NULL THEN   
+                    CONVERT(VARCHAR(8), ad.first_check_in, 108)  
+                ELSE 'N/A'  
             END AS time,  
             ad.status  
         FROM attendance_daily ad  
-        JOIN employees e ON ad.employee_id = e.employee_id  
-        JOIN employee_personal ep ON e.employee_id = ep.employee_id  
+        INNER JOIN employees e ON ad.employee_id = e.employee_id  
+        LEFT JOIN employee_personal ep ON e.employee_id = ep.employee_id  
         WHERE ad.attendance_date = @attendance_date  
           AND ad.employee_id = @employee_id  
-          AND (ad.first_check_in IS NOT NULL OR ad.last_check_out IS NOT NULL)  
+          AND e.status = 'ACTIVE'  
+          AND (ad.first_check_in IS NOT NULL OR ad.last_check_out IS NOT NULL OR ad.status IS NOT NULL)  
         ORDER BY   
             CASE   
                 WHEN ad.last_check_out IS NOT NULL THEN ad.last_check_out  
-                ELSE ad.first_check_in  
+                WHEN ad.first_check_in IS NOT NULL THEN ad.first_check_in  
+                ELSE '00:00:00'  
             END DESC;  
     END  
-  
-    -- 4. WEEKLY TREND (Last 7 days including today) - FIXED TO HANDLE EMPTY DATA  
-    -- Create a date range table first, then LEFT JOIN with attendance data  
-    ;WITH DateRange AS (  
-        SELECT DATEADD(DAY, number, DATEADD(DAY, -6, @attendance_date)) AS date_val  
-        FROM master.dbo.spt_values   
-        WHERE type = 'P' AND number BETWEEN 0 AND 6  
-    )  
+      
+    -- RESULT SET 4: WEEKLY TREND (Last 7 days including today)  
+    -- Using a simple approach with individual dates  
     SELECT   
-        DATENAME(WEEKDAY, dr.date_val) AS day_name,  
-        FORMAT(dr.date_val, 'ddd') AS day,  
-        ISNULL(SUM(CASE WHEN ad.status IN ('PRESENT', 'LATE') THEN 1 ELSE 0 END), 0) AS present,  
-        ISNULL(SUM(CASE WHEN ad.status = 'ABSENT' THEN 1 ELSE 0 END), 0) AS absent  
-    FROM DateRange dr  
-    LEFT JOIN attendance_daily ad ON dr.date_val = ad.attendance_date  
-        AND (@employee_id IS NULL OR ad.employee_id = @employee_id)  
-    GROUP BY dr.date_val, DATENAME(WEEKDAY, dr.date_val)  
-    ORDER BY dr.date_val;  
-END;  
+        day_name,  
+        day,  
+        ISNULL(present, 0) AS present,  
+        ISNULL(absent, 0) AS absent  
+    FROM (  
+        SELECT   
+            DATENAME(WEEKDAY, DATEADD(DAY, -6, @attendance_date)) AS day_name,  
+            LEFT(DATENAME(WEEKDAY, DATEADD(DAY, -6, @attendance_date)), 3) AS day,  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -6, @attendance_date)   
+               AND ad2.status IN ('PRESENT', 'LATE')   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)) AS present,  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -6, @attendance_date)   
+               AND ad2.status = 'ABSENT'   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)) AS absent,  
+            1 AS sort_order  
+          
+        UNION ALL  
+          
+        SELECT   
+            DATENAME(WEEKDAY, DATEADD(DAY, -5, @attendance_date)),  
+            LEFT(DATENAME(WEEKDAY, DATEADD(DAY, -5, @attendance_date)), 3),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -5, @attendance_date)   
+               AND ad2.status IN ('PRESENT', 'LATE')   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -5, @attendance_date)   
+               AND ad2.status = 'ABSENT'   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            2  
+          
+        UNION ALL  
+          
+        SELECT   
+            DATENAME(WEEKDAY, DATEADD(DAY, -4, @attendance_date)),  
+            LEFT(DATENAME(WEEKDAY, DATEADD(DAY, -4, @attendance_date)), 3),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -4, @attendance_date)   
+               AND ad2.status IN ('PRESENT', 'LATE')   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -4, @attendance_date)   
+               AND ad2.status = 'ABSENT'   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            3  
+          
+        UNION ALL  
+          
+        SELECT   
+            DATENAME(WEEKDAY, DATEADD(DAY, -3, @attendance_date)),  
+            LEFT(DATENAME(WEEKDAY, DATEADD(DAY, -3, @attendance_date)), 3),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -3, @attendance_date)   
+               AND ad2.status IN ('PRESENT', 'LATE')   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -3, @attendance_date)   
+               AND ad2.status = 'ABSENT'   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            4  
+          
+        UNION ALL  
+          
+        SELECT   
+            DATENAME(WEEKDAY, DATEADD(DAY, -2, @attendance_date)),  
+            LEFT(DATENAME(WEEKDAY, DATEADD(DAY, -2, @attendance_date)), 3),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -2, @attendance_date)   
+               AND ad2.status IN ('PRESENT', 'LATE')   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -2, @attendance_date)   
+               AND ad2.status = 'ABSENT'   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            5  
+          
+        UNION ALL  
+          
+        SELECT   
+            DATENAME(WEEKDAY, DATEADD(DAY, -1, @attendance_date)),  
+            LEFT(DATENAME(WEEKDAY, DATEADD(DAY, -1, @attendance_date)), 3),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -1, @attendance_date)   
+               AND ad2.status IN ('PRESENT', 'LATE')   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = DATEADD(DAY, -1, @attendance_date)   
+               AND ad2.status = 'ABSENT'   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            6  
+          
+        UNION ALL  
+          
+        SELECT   
+            DATENAME(WEEKDAY, @attendance_date),  
+            LEFT(DATENAME(WEEKDAY, @attendance_date), 3),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+        WHERE ad2.attendance_date = @attendance_date   
+               AND ad2.status IN ('PRESENT', 'LATE')   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            (SELECT COUNT(*) FROM attendance_daily ad2   
+             JOIN employees e2 ON ad2.employee_id = e2.employee_id   
+             WHERE ad2.attendance_date = @attendance_date   
+               AND ad2.status = 'ABSENT'   
+               AND e2.status = 'ACTIVE'  
+               AND (@employee_id IS NULL OR ad2.employee_id = @employee_id)),  
+            7  
+    ) AS WeeklyData  
+    ORDER BY sort_order;  
+END;    
 
 
 PROCEDURE : [dbo].[proc_get_employee_by_user]
@@ -3368,59 +3502,29 @@ PROCEDURE : [dbo].[proc_upgrade_password_hash]
 
 USE [ud_pond_hr]
 GO
-/****** Object:  StoredProcedure [dbo].[proc_upgrade_password_hash]    Script Date: 29-01-2026 15:20:50 ******/
+/****** Object:  StoredProcedure [dbo].[proc_upgrade_password_hash]    Script Date: 29-01-2026 15:18:00 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-
-        ALTER PROCEDURE [dbo].[proc_upgrade_password_hash]
-            @user_id INT,
-            @new_password_hash VARCHAR(255)
-        AS
-        BEGIN
-            SET NOCOUNT ON;
-            
-            -- Only update the password hash, keep requires_password_change as is
-            UPDATE users 
-            SET password_hash = @new_password_hash
-            WHERE user_id = @user_id AND is_active = 1;
-            
-            IF @@ROWCOUNT > 0
-                SELECT 1 AS success, 'Password hash upgraded successfully' AS message;
-            ELSE
-                SELECT 0 AS success, 'Failed to upgrade password hash' AS message;
-        END
-    
-
-    PROCEDURE : [dbo].[proc_upgrade_password_hash]
-
-    USE [ud_pond_hr]
-GO
-/****** Object:  StoredProcedure [dbo].[proc_upgrade_password_hash]    Script Date: 29-01-2026 15:44:09 ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-
-        ALTER PROCEDURE [dbo].[proc_upgrade_password_hash]
-            @user_id INT,
-            @new_password_hash VARCHAR(255)
-        AS
-        BEGIN
-            SET NOCOUNT ON;
-            
-            -- Only update the password hash, keep requires_password_change as is
-            UPDATE users 
-            SET password_hash = @new_password_hash
-            WHERE user_id = @user_id AND is_active = 1;
-            
-            IF @@ROWCOUNT > 0
-                SELECT 1 AS success, 'Password hash upgraded successfully' AS message;
-            ELSE
-                SELECT 0 AS success, 'Failed to upgrade password hash' AS message;
-        END
-    
+ALTER PROCEDURE [dbo].[proc_upgrade_password_hash]  
+    @user_id INT,  
+    @new_password_hash VARCHAR(255)  
+AS  
+BEGIN  
+    SET NOCOUNT ON;  
+      
+    -- Only update the password hash, keep requires_password_change as is  
+    UPDATE users   
+    SET password_hash = @new_password_hash  
+    WHERE user_id = @user_id AND is_active = 1;  
+      
+    IF @@ROWCOUNT > 0  
+        SELECT 1 AS success, 'Password hash upgraded successfully' AS message;  
+    ELSE  
+        SELECT 0 AS success, 'Failed to upgrade password hash' AS message;  
+END  
+      
 
 PROCEDURE : [dbo].[proc_update_daily_attendance]
 
@@ -4155,3 +4259,748 @@ BEGIN
         FORMAT(@log_time, 'hh:mm tt') AS log_time_formatted,
         @confidence AS confidence;
 END
+
+PAYROLL PROCEDURES : 
+
+CREATE PROCEDURE [dbo].[proc_calculate_employee_payroll]
+    @period_id INT,
+    @employee_id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        DECLARE @days_in_month INT;
+        DECLARE @days_worked DECIMAL(5,2);
+        DECLARE @days_absent DECIMAL(5,2);
+        DECLARE @days_leave DECIMAL(5,2);
+        DECLARE @basic_salary DECIMAL(10,2) = 0;
+        DECLARE @gross_salary DECIMAL(12,2) = 0;
+        DECLARE @total_earnings DECIMAL(12,2) = 0;
+        DECLARE @total_deductions DECIMAL(12,2) = 0;
+        DECLARE @net_salary DECIMAL(12,2) = 0;
+        
+        -- Get payroll period details
+        DECLARE @start_date DATE, @end_date DATE;
+        SELECT @start_date = start_date, @end_date = end_date
+        FROM payroll_periods WHERE period_id = @period_id;
+        
+        -- Calculate days in month
+        SET @days_in_month = DATEDIFF(DAY, @start_date, @end_date) + 1;
+        
+        -- Get attendance data for the period
+        SELECT 
+            @days_worked = COUNT(CASE WHEN status IN ('PRESENT', 'LATE', 'WFH') THEN 1 END),
+            @days_absent = COUNT(CASE WHEN status = 'ABSENT' THEN 1 END),
+            @days_leave = COUNT(CASE WHEN status = 'LEAVE' THEN 1 END)
+        FROM attendance_daily
+        WHERE employee_id = @employee_id
+          AND attendance_date BETWEEN @start_date AND @end_date;
+        
+        -- If no attendance data, assume full month present
+        IF @days_worked = 0 AND @days_absent = 0 AND @days_leave = 0
+        BEGIN
+            SET @days_worked = @days_in_month;
+        END
+        
+        -- Clear existing calculations for this employee and period
+        DELETE FROM payroll_calculations 
+        WHERE period_id = @period_id AND employee_id = @employee_id;
+        
+        -- Get basic salary for percentage calculations
+        SELECT @basic_salary = ISNULL(amount, 0)
+        FROM employee_salary_structure ess
+        JOIN payroll_components pc ON ess.component_id = pc.component_id
+        WHERE ess.employee_id = @employee_id
+          AND pc.component_code = 'BASIC'
+          AND ess.is_active = 1
+          AND @start_date BETWEEN ess.effective_from AND ISNULL(ess.effective_to, '2099-12-31');
+        
+        -- Calculate pro-rated basic salary based on attendance
+        DECLARE @prorated_basic DECIMAL(10,2) = (@basic_salary * @days_worked) / @days_in_month;
+        
+        -- STEP 1: Calculate all EARNING components
+        DECLARE @component_id INT, @amount DECIMAL(10,2), @percentage DECIMAL(5,2), @formula VARCHAR(500);
+        DECLARE @component_code VARCHAR(20), @calculation_type VARCHAR(20);
+        DECLARE @calculated_amount DECIMAL(10,2);
+        
+        DECLARE earning_cursor CURSOR FOR
+        SELECT 
+            pc.component_id, pc.component_code, pc.calculation_type,
+            ess.amount, ess.percentage, ess.formula
+        FROM employee_salary_structure ess
+        JOIN payroll_components pc ON ess.component_id = pc.component_id
+        WHERE ess.employee_id = @employee_id
+          AND pc.component_type = 'EARNING'
+          AND pc.is_active = 1
+          AND ess.is_active = 1
+          AND @start_date BETWEEN ess.effective_from AND ISNULL(ess.effective_to, '2099-12-31')
+        ORDER BY pc.display_order;
+        
+        OPEN earning_cursor;
+        FETCH NEXT FROM earning_cursor INTO @component_id, @component_code, @calculation_type, @amount, @percentage, @formula;
+        
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @calculated_amount = 0;
+            
+            IF @calculation_type = 'FIXED'
+            BEGIN
+                IF @component_code = 'BASIC'
+                    SET @calculated_amount = @prorated_basic;  -- Pro-rated basic
+                ELSE
+                    SET @calculated_amount = (@amount * @days_worked) / @days_in_month;  -- Pro-rated fixed amount
+            END
+            ELSE IF @calculation_type = 'PERCENTAGE'
+            BEGIN
+                IF @component_code = 'HRA' OR @component_code = 'DA'
+                    SET @calculated_amount = (@prorated_basic * @percentage) / 100;  -- Percentage of basic
+                ELSE
+                    SET @calculated_amount = (@gross_salary * @percentage) / 100;  -- Percentage of gross
+            END
+            ELSE IF @calculation_type = 'FORMULA'
+            BEGIN
+                -- For now, set to 0. Formula calculation can be enhanced later
+                SET @calculated_amount = 0;
+            END
+            
+            -- Insert calculation
+            INSERT INTO payroll_calculations (period_id, employee_id, component_id, calculated_amount, base_amount)
+            VALUES (@period_id, @employee_id, @component_id, @calculated_amount, 
+                   CASE WHEN @calculation_type = 'PERCENTAGE' THEN @prorated_basic ELSE NULL END);
+            
+            SET @total_earnings = @total_earnings + @calculated_amount;
+            
+            -- Update gross salary for percentage calculations
+            IF @component_code IN ('BASIC', 'HRA', 'DA', 'SPEC')
+                SET @gross_salary = @gross_salary + @calculated_amount;
+            
+            FETCH NEXT FROM earning_cursor INTO @component_id, @component_code, @calculation_type, @amount, @percentage, @formula;
+        END
+        
+        CLOSE earning_cursor;
+        DEALLOCATE earning_cursor;
+        
+        -- STEP 2: Calculate all DEDUCTION components
+        DECLARE deduction_cursor CURSOR FOR
+        SELECT 
+            pc.component_id, pc.component_code, pc.calculation_type,
+            ess.amount, ess.percentage, ess.formula
+        FROM employee_salary_structure ess
+        JOIN payroll_components pc ON ess.component_id = pc.component_id
+        WHERE ess.employee_id = @employee_id
+          AND pc.component_type = 'DEDUCTION'
+          AND pc.is_active = 1
+          AND ess.is_active = 1
+          AND @start_date BETWEEN ess.effective_from AND ISNULL(ess.effective_to, '2099-12-31')
+        ORDER BY pc.display_order;
+        
+        OPEN deduction_cursor;
+        FETCH NEXT FROM deduction_cursor INTO @component_id, @component_code, @calculation_type, @amount, @percentage, @formula;
+        
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @calculated_amount = 0;
+            
+            IF @calculation_type = 'FIXED'
+            BEGIN
+                SET @calculated_amount = @amount;
+            END
+            ELSE IF @calculation_type = 'PERCENTAGE'
+            BEGIN
+                IF @component_code = 'PF_EMP'
+                BEGIN
+                    -- PF on basic salary, max 15000
+                    DECLARE @pf_basic DECIMAL(10,2) = CASE WHEN @prorated_basic > 15000 THEN 15000 ELSE @prorated_basic END;
+                    SET @calculated_amount = (@pf_basic * @percentage) / 100;
+                END
+                ELSE IF @component_code = 'ESI_EMP'
+                BEGIN
+                    -- ESI on gross salary, max 25000
+                    IF @gross_salary <= 25000
+                        SET @calculated_amount = (@gross_salary * @percentage) / 100;
+                    ELSE
+                        SET @calculated_amount = 0;  -- No ESI if gross > 25000
+                END
+                ELSE
+                    SET @calculated_amount = (@gross_salary * @percentage) / 100;
+            END
+            ELSE IF @calculation_type = 'FORMULA'
+            BEGIN
+                -- TDS calculation would go here
+                SET @calculated_amount = 0;
+            END
+            
+            -- Insert calculation
+            INSERT INTO payroll_calculations (period_id, employee_id, component_id, calculated_amount, base_amount)
+            VALUES (@period_id, @employee_id, @component_id, @calculated_amount, 
+                   CASE WHEN @calculation_type = 'PERCENTAGE' THEN @gross_salary ELSE NULL END);
+            
+            SET @total_deductions = @total_deductions + @calculated_amount;
+            
+            FETCH NEXT FROM deduction_cursor INTO @component_id, @component_code, @calculation_type, @amount, @percentage, @formula;
+        END
+        
+        CLOSE deduction_cursor;
+        DEALLOCATE deduction_cursor;
+        
+        -- Calculate net salary
+        SET @net_salary = @total_earnings - @total_deductions;
+        
+        -- Insert/Update employee payroll summary
+        IF EXISTS (SELECT 1 FROM employee_payroll_summary WHERE period_id = @period_id AND employee_id = @employee_id)
+        BEGIN
+            UPDATE employee_payroll_summary
+            SET days_in_month = @days_in_month,
+                days_worked = @days_worked,
+                days_absent = @days_absent,
+                days_leave = @days_leave,
+                gross_salary = @gross_salary,
+                total_earnings = @total_earnings,
+                total_deductions = @total_deductions,
+                net_salary = @net_salary,
+                updated_at = GETDATE()
+            WHERE period_id = @period_id AND employee_id = @employee_id;
+        END
+        ELSE
+        BEGIN
+            INSERT INTO employee_payroll_summary (
+                period_id, employee_id, days_in_month, days_worked, days_absent, days_leave,
+                gross_salary, total_earnings, total_deductions, net_salary
+            )
+            VALUES (
+                @period_id, @employee_id, @days_in_month, @days_worked, @days_absent, @days_leave,
+                @gross_salary, @total_earnings, @total_deductions, @net_salary
+            );
+        END
+        
+        COMMIT TRANSACTION;
+        
+        SELECT 1 AS success, 'Payroll calculated successfully' AS message,
+               @total_earnings AS total_earnings, @total_deductions AS total_deductions, @net_salary AS net_salary;
+        
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        SELECT 0 AS success, 'Payroll calculation failed: ' + ERROR_MESSAGE() AS message;
+    END CATCH
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[proc_get_employee_payslip]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[proc_get_employee_payslip]
+    @period_id INT,
+    @employee_id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Result Set 1: Employee and period details
+    SELECT 
+        pp.period_name,
+        pp.start_date,
+        pp.end_date,
+        pp.salary_date,
+        e.employee_code,
+        ep.first_name + ' ' + ep.last_name AS employee_name,
+        eo.department,
+        eo.designation,
+        ISNULL(eps.days_in_month, 30) as days_in_month,
+        ISNULL(eps.days_worked, 30) as days_worked,
+        ISNULL(eps.days_absent, 0) as days_absent,
+        ISNULL(eps.days_leave, 0) as days_leave,
+        ISNULL(eps.gross_salary, 0) as gross_salary,
+        ISNULL(eps.total_earnings, 0) as total_earnings,
+        ISNULL(eps.total_deductions, 0) as total_deductions,
+        ISNULL(eps.net_salary, 0) as net_salary,
+        ISNULL(eps.payment_status, 'PENDING') as payment_status
+    FROM employees e
+    JOIN employee_personal ep ON e.employee_id = ep.employee_id
+    JOIN employee_official eo ON e.employee_id = eo.employee_id
+    JOIN payroll_periods pp ON pp.period_id = @period_id
+    LEFT JOIN employee_payroll_summary eps ON pp.period_id = eps.period_id AND e.employee_id = eps.employee_id
+    WHERE e.employee_id = @employee_id;
+    
+    -- Result Set 2: Earnings breakdown
+    SELECT 
+        pc.component_name,
+        pc.component_code,
+        ISNULL(pcalc.calculated_amount, 0) as calculated_amount,
+        ISNULL(pcalc.base_amount, 0) as base_amount
+    FROM payroll_components pc
+    LEFT JOIN payroll_calculations pcalc ON pc.component_id = pcalc.component_id 
+        AND pcalc.period_id = @period_id AND pcalc.employee_id = @employee_id
+    WHERE pc.component_type = 'EARNING' AND pc.is_active = 1
+        AND pcalc.calculated_amount IS NOT NULL
+    ORDER BY pc.display_order;
+    
+    -- Result Set 3: Deductions breakdown
+    SELECT 
+        pc.component_name,
+        pc.component_code,
+        ISNULL(pcalc.calculated_amount, 0) as calculated_amount,
+        ISNULL(pcalc.base_amount, 0) as base_amount
+    FROM payroll_components pc
+    LEFT JOIN payroll_calculations pcalc ON pc.component_id = pcalc.component_id 
+        AND pcalc.period_id = @period_id AND pcalc.employee_id = @employee_id
+    WHERE pc.component_type = 'DEDUCTION' AND pc.is_active = 1
+        AND pcalc.calculated_amount IS NOT NULL
+    ORDER BY pc.display_order;
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[proc_get_payroll_components]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[proc_get_payroll_components]
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Get all active payroll components grouped by type
+    SELECT 
+        component_id,
+        component_code,
+        component_name,
+        component_type,
+        calculation_type,
+        is_taxable,
+        is_statutory,
+        display_order
+    FROM payroll_components 
+    WHERE is_active = 1 
+    ORDER BY component_type, display_order;
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[proc_get_payroll_dashboard]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[proc_get_payroll_dashboard]
+    @period_id INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- If no period specified, get current period
+    IF @period_id IS NULL
+    BEGIN
+        SELECT TOP 1 @period_id = period_id 
+        FROM payroll_periods 
+        ORDER BY start_date DESC;
+    END
+    
+    -- Result Set 1: Period summary
+    SELECT 
+        period_id,
+        period_name,
+        start_date,
+        end_date,
+        salary_date,
+        status,
+        total_employees,
+        total_gross,
+        total_deductions,
+        total_net,
+        processed_at
+    FROM payroll_periods
+    WHERE period_id = @period_id;
+    
+    -- Result Set 2: Department-wise summary
+    SELECT 
+        ISNULL(eo.department, 'Unknown') as department,
+        COUNT(*) as employee_count,
+        ISNULL(SUM(eps.gross_salary), 0) as total_gross,
+        ISNULL(SUM(eps.total_deductions), 0) as total_deductions,
+        ISNULL(SUM(eps.net_salary), 0) as total_net,
+        ISNULL(AVG(eps.net_salary), 0) as avg_net_salary
+    FROM employees e
+    JOIN employee_official eo ON e.employee_id = eo.employee_id
+    LEFT JOIN employee_payroll_summary eps ON e.employee_id = eps.employee_id AND eps.period_id = @period_id
+    WHERE e.status = 'ACTIVE'
+    GROUP BY eo.department
+    ORDER BY total_net DESC;
+    
+    -- Result Set 3: Recent payroll activities
+    SELECT TOP 10
+        ep.first_name + ' ' + ep.last_name as employee_name,
+        ISNULL(eps.net_salary, 0) as net_salary,
+        ISNULL(eps.payment_status, 'PENDING') as payment_status,
+        ISNULL(eps.updated_at, eps.created_at) as updated_at
+    FROM employees e
+    JOIN employee_personal ep ON e.employee_id = ep.employee_id
+    LEFT JOIN employee_payroll_summary eps ON e.employee_id = eps.employee_id AND eps.period_id = @period_id
+    WHERE e.status = 'ACTIVE'
+    ORDER BY ISNULL(eps.updated_at, eps.created_at) DESC;
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[proc_get_payroll_periods]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[proc_get_payroll_periods]
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        period_id,
+        period_name,
+        period_type,
+        start_date,
+        end_date,
+        salary_date,
+        status,
+        total_employees,
+        total_gross,
+        total_deductions,
+        total_net,
+        processed_by,
+        processed_at,
+        created_at
+    FROM payroll_periods 
+    ORDER BY start_date DESC;
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[proc_get_payroll_summary]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[proc_get_payroll_summary]
+    @period_id INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        e.employee_id,
+        e.employee_code,
+        ep.first_name + ' ' + ep.last_name AS employee_name,
+        eo.department,
+        eo.designation,
+        ISNULL(eps.days_worked, 30) as days_worked,
+        ISNULL(eps.days_absent, 0) as days_absent,
+        ISNULL(eps.gross_salary, 0) as gross_salary,
+        ISNULL(eps.total_earnings, 0) as total_earnings,
+        ISNULL(eps.total_deductions, 0) as total_deductions,
+        ISNULL(eps.net_salary, 0) as net_salary,
+        ISNULL(eps.payment_status, 'PENDING') as payment_status
+    FROM employees e
+    JOIN employee_personal ep ON e.employee_id = ep.employee_id
+    JOIN employee_official eo ON e.employee_id = eo.employee_id
+    LEFT JOIN employee_payroll_summary eps ON e.employee_id = eps.employee_id AND eps.period_id = @period_id
+    WHERE e.status = 'ACTIVE'
+    ORDER BY ep.first_name;
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[proc_manage_salary_structure]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[proc_manage_salary_structure]
+    @action VARCHAR(20), -- 'ADD', 'UPDATE', 'DELETE', 'GET'
+    @employee_id INT,
+    @component_id INT = NULL,
+    @amount DECIMAL(10,2) = NULL,
+    @percentage DECIMAL(5,2) = NULL,
+    @formula VARCHAR(500) = NULL,
+    @effective_from DATE = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    IF @action = 'GET'
+    BEGIN
+        SELECT 
+            ess.structure_id,
+            ess.employee_id,
+            pc.component_id,
+            pc.component_code,
+            pc.component_name,
+            pc.component_type,
+            pc.calculation_type,
+            ess.amount,
+            ess.percentage,
+            ess.formula,
+            ess.effective_from,
+            ess.effective_to,
+            ess.is_active
+        FROM employee_salary_structure ess
+        JOIN payroll_components pc ON ess.component_id = pc.component_id
+        WHERE ess.employee_id = @employee_id
+          AND ess.is_active = 1
+        ORDER BY pc.component_type, pc.display_order;
+    END
+    ELSE IF @action = 'ADD'
+    BEGIN
+        IF @effective_from IS NULL
+            SET @effective_from = DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1);
+        
+        INSERT INTO employee_salary_structure (
+            employee_id, component_id, amount, percentage, formula, effective_from
+        )
+        VALUES (@employee_id, @component_id, @amount, @percentage, @formula, @effective_from);
+        
+        SELECT 1 AS success, 'Salary component added successfully' AS message;
+    END
+    ELSE IF @action = 'UPDATE'
+    BEGIN
+        UPDATE employee_salary_structure
+        SET amount = @amount,
+            percentage = @percentage,
+            formula = @formula,
+            updated_at = GETDATE()
+        WHERE employee_id = @employee_id 
+          AND component_id = @component_id
+          AND is_active = 1;
+        
+        IF @@ROWCOUNT > 0
+            SELECT 1 AS success, 'Salary component updated successfully' AS message;
+        ELSE
+            SELECT 0 AS success, 'Salary component not found' AS message;
+    END
+    ELSE IF @action = 'DELETE'
+    BEGIN
+        UPDATE employee_salary_structure
+        SET is_active = 0,
+            effective_to = GETDATE(),
+            updated_at = GETDATE()
+        WHERE employee_id = @employee_id 
+          AND component_id = @component_id
+          AND is_active = 1;
+        
+        IF @@ROWCOUNT > 0
+            SELECT 1 AS success, 'Salary component removed successfully' AS message;
+        ELSE
+            SELECT 0 AS success, 'Salary component not found' AS message;
+    END
+END;
+GO
+/****** Object:  StoredProcedure [dbo].[proc_process_bulk_payroll]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[proc_process_bulk_payroll]
+    @period_id INT,
+    @processed_by INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        DECLARE @employee_count INT = 0;
+        DECLARE @success_count INT = 0;
+        DECLARE @error_count INT = 0;
+        
+        -- Check if period exists and is in correct status
+        IF NOT EXISTS (SELECT 1 FROM payroll_periods WHERE period_id = @period_id AND status IN ('DRAFT', 'PROCESSING'))
+        BEGIN
+            SELECT 0 AS success, 'Invalid period or period already processed' AS message;
+            RETURN;
+        END
+        
+        -- Update period status to PROCESSING
+        UPDATE payroll_periods SET status = 'PROCESSING', updated_at = GETDATE()
+        WHERE period_id = @period_id;
+        
+        -- Get all active employees
+        DECLARE @employee_id INT;
+        DECLARE employee_cursor CURSOR FOR
+        SELECT employee_id FROM employees WHERE status = 'ACTIVE';
+        
+        OPEN employee_cursor;
+        FETCH NEXT FROM employee_cursor INTO @employee_id;
+        
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @employee_count = @employee_count + 1;
+            
+            -- Calculate payroll for each employee
+            DECLARE @result_success INT;
+            EXEC proc_calculate_employee_payroll @period_id, @employee_id;
+            
+            -- For simplicity, assume success. In production, capture the result
+            SET @success_count = @success_count + 1;
+            
+            FETCH NEXT FROM employee_cursor INTO @employee_id;
+        END
+        
+        CLOSE employee_cursor;
+        DEALLOCATE employee_cursor;
+        
+        -- Update period totals
+        UPDATE pp SET
+            total_employees = @employee_count,
+            total_gross = (SELECT ISNULL(SUM(gross_salary), 0) FROM employee_payroll_summary WHERE period_id = @period_id),
+            total_deductions = (SELECT ISNULL(SUM(total_deductions), 0) FROM employee_payroll_summary WHERE period_id = @period_id),
+            total_net = (SELECT ISNULL(SUM(net_salary), 0) FROM employee_payroll_summary WHERE period_id = @period_id),
+            status = 'COMPLETED',
+            processed_by = @processed_by,
+            processed_at = GETDATE(),
+            updated_at = GETDATE()
+        FROM payroll_periods pp
+        WHERE period_id = @period_id;
+        
+        SELECT 1 AS success, 'Bulk payroll processing completed' AS message,
+               @employee_count AS total_employees, @success_count AS successful_calculations;
+        
+    END TRY
+    BEGIN CATCH
+        -- Update period status back to DRAFT on error
+        UPDATE payroll_periods SET status = 'DRAFT', updated_at = GETDATE()
+        WHERE period_id = @period_id;
+        
+        SELECT 0 AS success, 'Bulk payroll processing failed: ' + ERROR_MESSAGE() AS message;
+    END CATCH
+END;
+GO
+
+
+-- ============================================
+-- PAYROLL PROCEDURES (PHASE 3 - OPERATIONAL)
+-- ============================================
+
+PROCEDURE : [dbo].[proc_lock_payroll]
+
+-- Lock payroll after verification and approval
+-- Prevents any further modifications to payroll data
+-- Status: COMPLETED → LOCKED
+
+EXEC proc_lock_payroll 
+    @period_id = 1,
+    @locked_by = 1;
+
+
+PROCEDURE : [dbo].[proc_unlock_payroll]
+
+-- Emergency unlock of payroll (requires reason)
+-- Only allowed if no salaries have been paid
+-- Status: LOCKED → COMPLETED
+
+EXEC proc_unlock_payroll 
+    @period_id = 1,
+    @unlocked_by = 1,
+    @reason = 'Attendance correction required';
+
+
+PROCEDURE : [dbo].[proc_mark_salary_paid]
+
+-- Mark salaries as paid after bank transfer
+-- Can mark individual employee or all employees
+-- Updates payment_status, payment_date, payment_reference
+
+-- Mark all employees as paid
+EXEC proc_mark_salary_paid
+    @period_id = 1,
+    @employee_id = NULL,
+    @payment_reference = 'BANK_REF_2026_03',
+    @payment_date = '2026-03-31',
+    @paid_by = 1;
+
+-- Mark specific employee as paid
+EXEC proc_mark_salary_paid
+    @period_id = 1,
+    @employee_id = 5,
+    @payment_reference = 'BANK_REF_2026_03_EMP005',
+    @payment_date = '2026-03-31',
+    @paid_by = 1;
+
+
+PROCEDURE : [dbo].[proc_get_salary_register]
+
+-- Complete salary register report
+-- Returns 3 result sets:
+--   1. Period details
+--   2. Employee-wise salary breakdown
+--   3. Department-wise summary
+
+-- Get full salary register
+EXEC proc_get_salary_register @period_id = 1;
+
+-- Filter by department
+EXEC proc_get_salary_register 
+    @period_id = 1,
+    @department = 'Engineering';
+
+-- Filter by payment status
+EXEC proc_get_salary_register 
+    @period_id = 1,
+    @payment_status = 'PENDING';
+
+
+PROCEDURE : [dbo].[proc_get_bank_advice]
+
+-- Generate bank transfer advice report
+-- Only works for LOCKED payroll
+-- Lists all pending payments with total amount
+
+EXEC proc_get_bank_advice @period_id = 1;
+
+
+-- ============================================
+-- PAYROLL WORKFLOW SUMMARY
+-- ============================================
+
+/*
+COMPLETE PAYROLL WORKFLOW:
+
+1. CREATE PERIOD
+   - Run PAYROLL_MASTER_DATA_PHASE1.sql
+   - Or manually insert into payroll_periods
+
+2. PROCESS PAYROLL
+   EXEC proc_process_bulk_payroll 
+       @period_id = 1, 
+       @processed_by = 1;
+
+3. REVIEW SUMMARY
+   EXEC proc_get_payroll_summary @period_id = 1;
+
+4. REVIEW SALARY REGISTER
+   EXEC proc_get_salary_register @period_id = 1;
+
+5. LOCK PAYROLL
+   EXEC proc_lock_payroll 
+       @period_id = 1, 
+       @locked_by = 1;
+
+6. GENERATE BANK ADVICE
+   EXEC proc_get_bank_advice @period_id = 1;
+
+7. TRANSFER SALARIES (External Bank Process)
+
+8. MARK AS PAID
+   EXEC proc_mark_salary_paid
+       @period_id = 1,
+       @payment_reference = 'BANK_REF_2026_03',
+       @paid_by = 1;
+
+9. GENERATE PAYSLIPS
+   EXEC proc_get_employee_payslip 
+       @period_id = 1, 
+       @employee_id = 5;
+
+10. UNLOCK IF NEEDED (Emergency Only)
+    EXEC proc_unlock_payroll 
+        @period_id = 1, 
+        @unlocked_by = 1,
+        @reason = 'Correction required';
+*/

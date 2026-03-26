@@ -1,383 +1,160 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-    Box,
-    Typography,
-    Paper,
-    Card,
-    CardContent,
-    Button,
-    TextField,
-    MenuItem,
-    FormControl,
-    InputLabel,
-    Select,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Chip,
-    Avatar,
-    IconButton,
-    Stack,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Rating,
-    Divider,
-    Alert
+    Box, Typography, Paper, Card, CardContent, Button, TextField,
+    FormControl, InputLabel, Select, MenuItem, Table, TableBody,
+    TableCell, TableContainer, TableHead, TableRow, Chip, Avatar,
+    IconButton, Stack, Dialog, DialogTitle, DialogContent, DialogActions,
+    Rating, Divider, Alert, CircularProgress
 } from '@mui/material';
-import {
-    Add as AddIcon,
-    Visibility as ViewIcon,
-    Edit as EditIcon,
-    QuestionAnswer as InterviewIcon,
-    Refresh as RefreshIcon,
-    Save as SaveIcon
-} from '@mui/icons-material';
+import { Add as AddIcon, Visibility as ViewIcon, QuestionAnswer as InterviewIcon,
+    Refresh as RefreshIcon, Save as SaveIcon } from '@mui/icons-material';
+import offboardingService from '../../services/offboardingService';
+import AppDatePicker from '../../components/common/AppDatePicker';
 
-// Mock exit interview data
-const mockInterviewData = [
-    {
-        id: 1,
-        employeeId: 'EMP001',
-        employeeName: 'John Smith',
-        department: 'Engineering',
-        exitDate: '2025-01-15',
-        interviewDate: '2025-01-10',
-        interviewedBy: 'HR Manager',
-        status: 'Completed',
-        responses: {
-            reasonForLeaving: 'Better career opportunity',
-            jobSatisfaction: 4,
-            workEnvironment: 3,
-            management: 4,
-            compensation: 3,
-            workLifeBalance: 2,
-            feedback: 'Great team and learning opportunities. Would like better work-life balance.',
-            suggestions: 'Consider flexible working hours and remote work options.',
-            wouldRecommend: 'Yes',
-            wouldRejoin: 'Maybe'
-        },
-        privateNotes: 'Good performer, left for 40% salary hike. Consider counter-offer for similar profiles.'
-    },
-    {
-        id: 2,
-        employeeId: 'EMP005',
-        employeeName: 'David Wilson',
-        department: 'Sales',
-        exitDate: '2024-12-31',
-        interviewDate: '2024-12-28',
-        interviewedBy: 'HR Manager',
-        status: 'Completed',
-        responses: {
-            reasonForLeaving: 'Performance issues',
-            jobSatisfaction: 2,
-            workEnvironment: 2,
-            management: 1,
-            compensation: 3,
-            workLifeBalance: 3,
-            feedback: 'Felt unsupported by management. Unclear expectations.',
-            suggestions: 'Better onboarding and regular feedback sessions.',
-            wouldRecommend: 'No',
-            wouldRejoin: 'No'
-        },
-        privateNotes: 'Performance concerns were valid. Need to improve management training.'
-    }
-];
+const BLANK_FORM = {
+    interview_date: '', reason_for_leaving: '', job_satisfaction: 0,
+    work_environment: 0, management: 0, compensation: 0, work_life_balance: 0,
+    feedback: '', suggestions: '', would_recommend: '', would_rejoin: '', private_notes: ''
+};
 
-const ExitInterview = () => {
-    const [interviews, setInterviews] = useState(mockInterviewData);
-    const [showInterviewDialog, setShowInterviewDialog] = useState(false);
-    const [selectedEmployee, setSelectedEmployee] = useState(null);
-    const [isNewInterview, setIsNewInterview] = useState(false);
-    const [formData, setFormData] = useState({
-        employeeId: '',
-        interviewDate: '',
-        reasonForLeaving: '',
-        jobSatisfaction: 0,
-        workEnvironment: 0,
-        management: 0,
-        compensation: 0,
-        workLifeBalance: 0,
-        feedback: '',
-        suggestions: '',
-        wouldRecommend: '',
-        wouldRejoin: '',
-        privateNotes: ''
-    });
+const ExitInterview = ({ onInterviewSaved }) => {
+    const [exits, setExits] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [showDialog, setShowDialog] = useState(false);
+    const [selectedExit, setSelectedExit] = useState(null);
+    const [form, setForm] = useState(BLANK_FORM);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
 
-    const handleInputChange = (field, value) => {
-        setFormData(prev => ({
-            ...prev,
-            [field]: value
-        }));
+    const load = async () => {
+        setLoading(true);
+        try {
+            const res = await offboardingService.getAllExits();
+            if (res.success) {
+                // Show exits that are in INTERVIEW stage or already have interview done
+                setExits((res.data || []).filter(e => ['INTERVIEW', 'SETTLEMENT', 'COMPLETED'].includes(e.status)));
+            }
+        } catch { setError('Failed to load'); }
+        finally { setLoading(false); }
     };
 
-    const handleNewInterview = () => {
-        setIsNewInterview(true);
-        setSelectedEmployee(null);
-        resetForm();
-        setShowInterviewDialog(true);
+    useEffect(() => { load(); }, []);
+
+    const openInterview = async (exit) => {
+        setSelectedExit(exit);
+        setForm(BLANK_FORM);
+        try {
+            const res = await offboardingService.getInterview(exit.exit_id);
+            if (res.success && res.data) {
+                const d = res.data;
+                setForm({
+                    interview_date: d.interview_date || '',
+                    reason_for_leaving: d.reason_for_leaving || '',
+                    job_satisfaction: d.job_satisfaction || 0,
+                    work_environment: d.work_environment || 0,
+                    management: d.management || 0,
+                    compensation: d.compensation || 0,
+                    work_life_balance: d.work_life_balance || 0,
+                    feedback: d.feedback || '',
+                    suggestions: d.suggestions || '',
+                    would_recommend: d.would_recommend || '',
+                    would_rejoin: d.would_rejoin || '',
+                    private_notes: d.private_notes || ''
+                });
+            }
+        } catch { /* no interview yet */ }
+        setShowDialog(true);
     };
 
-    const handleViewInterview = (interview) => {
-        setIsNewInterview(false);
-        setSelectedEmployee(interview);
-        setFormData({
-            employeeId: interview.employeeId,
-            interviewDate: interview.interviewDate,
-            reasonForLeaving: interview.responses.reasonForLeaving,
-            jobSatisfaction: interview.responses.jobSatisfaction,
-            workEnvironment: interview.responses.workEnvironment,
-            management: interview.responses.management,
-            compensation: interview.responses.compensation,
-            workLifeBalance: interview.responses.workLifeBalance,
-            feedback: interview.responses.feedback,
-            suggestions: interview.responses.suggestions,
-            wouldRecommend: interview.responses.wouldRecommend,
-            wouldRejoin: interview.responses.wouldRejoin,
-            privateNotes: interview.privateNotes
-        });
-        setShowInterviewDialog(true);
+    const handleSave = async () => {
+        if (!selectedExit) return;
+        setSubmitting(true);
+        setError('');
+        try {
+            const res = await offboardingService.saveInterview(selectedExit.exit_id, form);
+            if (res.success) {
+                setSuccess('Interview saved successfully');
+                setShowDialog(false);
+                load();
+                if (onInterviewSaved) onInterviewSaved();
+            } else {
+                setError(res.message || 'Failed to save');
+            }
+        } catch { setError('Failed to save interview'); }
+        finally { setSubmitting(false); }
     };
 
-    const handleSaveInterview = () => {
-        if (isNewInterview) {
-            const newInterview = {
-                id: interviews.length + 1,
-                employeeId: formData.employeeId,
-                employeeName: 'Selected Employee', // In real app, fetch from employee ID
-                department: 'Department',
-                exitDate: '2025-01-31',
-                interviewDate: formData.interviewDate,
-                interviewedBy: 'HR Manager',
-                status: 'Completed',
-                responses: {
-                    reasonForLeaving: formData.reasonForLeaving,
-                    jobSatisfaction: formData.jobSatisfaction,
-                    workEnvironment: formData.workEnvironment,
-                    management: formData.management,
-                    compensation: formData.compensation,
-                    workLifeBalance: formData.workLifeBalance,
-                    feedback: formData.feedback,
-                    suggestions: formData.suggestions,
-                    wouldRecommend: formData.wouldRecommend,
-                    wouldRejoin: formData.wouldRejoin
-                },
-                privateNotes: formData.privateNotes
-            };
-            setInterviews(prev => [...prev, newInterview]);
-        } else {
-            // Update existing interview
-            setInterviews(prev => prev.map(interview => 
-                interview.id === selectedEmployee.id 
-                    ? {
-                        ...interview,
-                        responses: {
-                            reasonForLeaving: formData.reasonForLeaving,
-                            jobSatisfaction: formData.jobSatisfaction,
-                            workEnvironment: formData.workEnvironment,
-                            management: formData.management,
-                            compensation: formData.compensation,
-                            workLifeBalance: formData.workLifeBalance,
-                            feedback: formData.feedback,
-                            suggestions: formData.suggestions,
-                            wouldRecommend: formData.wouldRecommend,
-                            wouldRejoin: formData.wouldRejoin
-                        },
-                        privateNotes: formData.privateNotes
-                    }
-                    : interview
-            ));
-        }
-        setShowInterviewDialog(false);
-        resetForm();
-    };
-
-    const resetForm = () => {
-        setFormData({
-            employeeId: '',
-            interviewDate: '',
-            reasonForLeaving: '',
-            jobSatisfaction: 0,
-            workEnvironment: 0,
-            management: 0,
-            compensation: 0,
-            workLifeBalance: 0,
-            feedback: '',
-            suggestions: '',
-            wouldRecommend: '',
-            wouldRejoin: '',
-            privateNotes: ''
-        });
-    };
-
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'Completed': return 'success';
-            case 'Scheduled': return 'info';
-            case 'Pending': return 'warning';
-            default: return 'default';
-        }
-    };
-
-    const getAverageRating = (responses) => {
-        const ratings = [
-            responses.jobSatisfaction,
-            responses.workEnvironment,
-            responses.management,
-            responses.compensation,
-            responses.workLifeBalance
-        ];
-        return ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length;
+    const avgRating = (f) => {
+        const vals = [f.job_satisfaction, f.work_environment, f.management, f.compensation, f.work_life_balance].filter(Boolean);
+        return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '—';
     };
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-            {/* Quick Info */}
-            <Box sx={{ mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Exit Interview Management
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Conduct and manage exit interviews to gather valuable feedback
-                        </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1}>
-                        <Button
-                            variant="outlined"
-                            startIcon={<RefreshIcon />}
-                            onClick={() => setInterviews(mockInterviewData)}
-                            size="small"
-                        >
-                            Refresh
-                        </Button>
-                        <Button
-                            variant="contained"
-                            startIcon={<AddIcon />}
-                            onClick={handleNewInterview}
-                        >
-                            New Interview
-                        </Button>
-                    </Stack>
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+            {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Box>
+                    <Typography variant="h6" fontWeight={600}>Exit Interview Management</Typography>
+                    <Typography variant="body2" color="text.secondary">Conduct exit interviews for employees in clearance-done stage</Typography>
                 </Box>
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">Refresh</Button>
             </Box>
 
-            {/* Summary Cards */}
-            <Box sx={{ display: 'flex', gap: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 }, flexWrap: 'wrap' }}>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="primary.main" sx={{ fontWeight: 700 }}>
-                            {interviews.length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Total Interviews
-                        </Typography>
+            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                <Card sx={{ flex: '1 1 180px' }}>
+                    <CardContent>
+                        <Typography variant="h4" color="primary.main" fontWeight={700}>{exits.length}</Typography>
+                        <Typography variant="body2" color="text.secondary">Pending Interviews</Typography>
                     </CardContent>
                 </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="success.main" sx={{ fontWeight: 700 }}>
-                            {interviews.filter(i => i.status === 'Completed').length}
+                <Card sx={{ flex: '1 1 180px' }}>
+                    <CardContent>
+                        <Typography variant="h4" color="success.main" fontWeight={700}>
+                            {exits.filter(e => ['SETTLEMENT','COMPLETED'].includes(e.status)).length}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Completed
-                        </Typography>
-                    </CardContent>
-                </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="info.main" sx={{ fontWeight: 700 }}>
-                            {interviews.length > 0 ? getAverageRating(interviews[0].responses).toFixed(1) : '0.0'}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Avg Satisfaction
-                        </Typography>
+                        <Typography variant="body2" color="text.secondary">Completed</Typography>
                     </CardContent>
                 </Card>
             </Box>
 
-            {/* Interviews Table */}
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>
                         <TableRow sx={{ bgcolor: 'action.hover' }}>
-                            <TableCell sx={{ fontWeight: 600 }}>Employee</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Exit Date</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Interview Date</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Interviewed By</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Avg Rating</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
+                            {['Employee', 'Exit Type', 'Last Working Day', 'Status', 'Actions'].map(h => (
+                                <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>
+                            ))}
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {interviews.map((interview) => (
-                            <TableRow key={interview.id} hover>
+                        {loading ? (
+                            <TableRow><TableCell colSpan={5} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                        ) : exits.length === 0 ? (
+                            <TableRow><TableCell colSpan={5} align="center">No exits ready for interview</TableCell></TableRow>
+                        ) : exits.map(exit => (
+                            <TableRow key={exit.exit_id} hover>
                                 <TableCell>
                                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                        <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.875rem' }}>
-                                            {interview.employeeName.charAt(0)}
+                                        <Avatar sx={{ width: 32, height: 32, mr: 1.5, fontSize: '0.875rem' }}>
+                                            {(exit.employee_name || '?').charAt(0)}
                                         </Avatar>
                                         <Box>
-                                            <Typography variant="body2" fontWeight={600}>
-                                                {interview.employeeName}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {interview.employeeId} • {interview.department}
-                                            </Typography>
+                                            <Typography variant="body2" fontWeight={600}>{exit.employee_name}</Typography>
+                                            <Typography variant="caption" color="text.secondary">{exit.employee_id} • {exit.department}</Typography>
                                         </Box>
                                     </Box>
                                 </TableCell>
+                                <TableCell><Chip label={exit.exit_type} size="small" /></TableCell>
+                                <TableCell>{exit.last_working_day ? new Date(exit.last_working_day).toLocaleDateString('en-IN') : '-'}</TableCell>
                                 <TableCell>
-                                    <Typography variant="body2">
-                                        {new Date(interview.exitDate).toLocaleDateString('en-IN')}
-                                    </Typography>
+                                    <Chip label={exit.status === 'INTERVIEW' ? 'Pending Interview' : 'Interview Done'}
+                                        color={exit.status === 'INTERVIEW' ? 'warning' : 'success'} size="small" />
                                 </TableCell>
                                 <TableCell>
-                                    <Typography variant="body2">
-                                        {new Date(interview.interviewDate).toLocaleDateString('en-IN')}
-                                    </Typography>
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant="body2">
-                                        {interview.interviewedBy}
-                                    </Typography>
-                                </TableCell>
-                                <TableCell>
-                                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                        <Rating
-                                            value={getAverageRating(interview.responses)}
-                                            readOnly
-                                            size="small"
-                                            precision={0.1}
-                                        />
-                                        <Typography variant="body2" sx={{ ml: 1 }}>
-                                            {getAverageRating(interview.responses).toFixed(1)}
-                                        </Typography>
-                                    </Box>
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={interview.status}
-                                        color={getStatusColor(interview.status)}
-                                        size="small"
-                                    />
-                                </TableCell>
-                                <TableCell align="right">
-                                    <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                        <IconButton size="small" onClick={() => handleViewInterview(interview)}>
-                                            <ViewIcon />
-                                        </IconButton>
-                                        <IconButton size="small" onClick={() => handleViewInterview(interview)}>
-                                            <EditIcon />
-                                        </IconButton>
-                                    </Stack>
+                                    <IconButton size="small" onClick={() => openInterview(exit)}><ViewIcon /></IconButton>
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -386,175 +163,64 @@ const ExitInterview = () => {
             </TableContainer>
 
             {/* Interview Dialog */}
-            <Dialog open={showInterviewDialog} onClose={() => setShowInterviewDialog(false)} maxWidth="md" fullWidth>
+            <Dialog open={showDialog} onClose={() => setShowDialog(false)} maxWidth="md" fullWidth>
                 <DialogTitle>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <InterviewIcon />
-                        {isNewInterview ? 'New Exit Interview' : `Exit Interview - ${selectedEmployee?.employeeName}`}
+                        <InterviewIcon />Exit Interview — {selectedExit?.employee_name}
                     </Box>
                 </DialogTitle>
                 <DialogContent>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                        {/* Basic Information */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Interview Details
-                            </Typography>
-                            <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                                {isNewInterview && (
-                                    <FormControl fullWidth>
-                                        <InputLabel>Select Employee</InputLabel>
-                                        <Select
-                                            value={formData.employeeId}
-                                            label="Select Employee"
-                                            onChange={(e) => handleInputChange('employeeId', e.target.value)}
-                                        >
-                                            <MenuItem value="EMP001">John Smith (EMP001)</MenuItem>
-                                            <MenuItem value="EMP002">Sarah Johnson (EMP002)</MenuItem>
-                                            <MenuItem value="EMP003">Michael Chen (EMP003)</MenuItem>
-                                        </Select>
-                                    </FormControl>
-                                )}
-                                <TextField
-                                    fullWidth
-                                    label="Interview Date"
-                                    type="date"
-                                    value={formData.interviewDate}
-                                    onChange={(e) => handleInputChange('interviewDate', e.target.value)}
-                                    slotProps={{ inputLabel: { shrink: true } }}
-                                />
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, mt: 1 }}>
+                        <AppDatePicker label="Interview Date" value={form.interview_date}
+                            onChange={v => setForm(p => ({ ...p, interview_date: v }))} />
+                        <Divider />
+                        <TextField fullWidth label="Primary Reason for Leaving" multiline rows={2}
+                            value={form.reason_for_leaving} onChange={e => setForm(p => ({ ...p, reason_for_leaving: e.target.value }))} />
+                        <Divider />
+                        <Typography variant="subtitle1" fontWeight={600}>Satisfaction Ratings</Typography>
+                        {[
+                            { key: 'job_satisfaction', label: 'Overall Job Satisfaction' },
+                            { key: 'work_environment', label: 'Work Environment' },
+                            { key: 'management', label: 'Management Support' },
+                            { key: 'compensation', label: 'Compensation & Benefits' },
+                            { key: 'work_life_balance', label: 'Work-Life Balance' }
+                        ].map(item => (
+                            <Box key={item.key} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Typography variant="body2" sx={{ minWidth: 200 }}>{item.label}</Typography>
+                                <Rating value={form[item.key]} onChange={(_, v) => setForm(p => ({ ...p, [item.key]: v }))} />
                             </Box>
-                        </Box>
-
+                        ))}
                         <Divider />
-
-                        {/* Exit Reason */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Exit Information
-                            </Typography>
-                            <TextField
-                                fullWidth
-                                label="Primary Reason for Leaving"
-                                value={formData.reasonForLeaving}
-                                onChange={(e) => handleInputChange('reasonForLeaving', e.target.value)}
-                                multiline
-                                rows={2}
-                            />
+                        <TextField fullWidth label="What did you like most?" multiline rows={2}
+                            value={form.feedback} onChange={e => setForm(p => ({ ...p, feedback: e.target.value }))} />
+                        <TextField fullWidth label="Suggestions for improvement" multiline rows={2}
+                            value={form.suggestions} onChange={e => setForm(p => ({ ...p, suggestions: e.target.value }))} />
+                        <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+                            <FormControl fullWidth>
+                                <InputLabel>Would recommend company?</InputLabel>
+                                <Select value={form.would_recommend} label="Would recommend company?"
+                                    onChange={e => setForm(p => ({ ...p, would_recommend: e.target.value }))}>
+                                    {['Yes', 'No', 'Maybe'].map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                                </Select>
+                            </FormControl>
+                            <FormControl fullWidth>
+                                <InputLabel>Would consider rejoining?</InputLabel>
+                                <Select value={form.would_rejoin} label="Would consider rejoining?"
+                                    onChange={e => setForm(p => ({ ...p, would_rejoin: e.target.value }))}>
+                                    {['Yes', 'No', 'Maybe'].map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                                </Select>
+                            </FormControl>
                         </Box>
-
                         <Divider />
-
-                        {/* Ratings */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Satisfaction Ratings
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                {[
-                                    { key: 'jobSatisfaction', label: 'Overall Job Satisfaction' },
-                                    { key: 'workEnvironment', label: 'Work Environment' },
-                                    { key: 'management', label: 'Management Support' },
-                                    { key: 'compensation', label: 'Compensation & Benefits' },
-                                    { key: 'workLifeBalance', label: 'Work-Life Balance' }
-                                ].map((item) => (
-                                    <Box key={item.key} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                        <Typography variant="body2" sx={{ minWidth: 200 }}>
-                                            {item.label}
-                                        </Typography>
-                                        <Rating
-                                            value={formData[item.key]}
-                                            onChange={(event, newValue) => handleInputChange(item.key, newValue)}
-                                            size="large"
-                                        />
-                                    </Box>
-                                ))}
-                            </Box>
-                        </Box>
-
-                        <Divider />
-
-                        {/* Feedback */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Detailed Feedback
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <TextField
-                                    fullWidth
-                                    label="What did you like most about working here?"
-                                    value={formData.feedback}
-                                    onChange={(e) => handleInputChange('feedback', e.target.value)}
-                                    multiline
-                                    rows={3}
-                                />
-                                <TextField
-                                    fullWidth
-                                    label="What suggestions do you have for improvement?"
-                                    value={formData.suggestions}
-                                    onChange={(e) => handleInputChange('suggestions', e.target.value)}
-                                    multiline
-                                    rows={3}
-                                />
-                                <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                                    <FormControl fullWidth>
-                                        <InputLabel>Would you recommend this company?</InputLabel>
-                                        <Select
-                                            value={formData.wouldRecommend}
-                                            label="Would you recommend this company?"
-                                            onChange={(e) => handleInputChange('wouldRecommend', e.target.value)}
-                                        >
-                                            <MenuItem value="Yes">Yes</MenuItem>
-                                            <MenuItem value="No">No</MenuItem>
-                                            <MenuItem value="Maybe">Maybe</MenuItem>
-                                        </Select>
-                                    </FormControl>
-                                    <FormControl fullWidth>
-                                        <InputLabel>Would you consider rejoining?</InputLabel>
-                                        <Select
-                                            value={formData.wouldRejoin}
-                                            label="Would you consider rejoining?"
-                                            onChange={(e) => handleInputChange('wouldRejoin', e.target.value)}
-                                        >
-                                            <MenuItem value="Yes">Yes</MenuItem>
-                                            <MenuItem value="No">No</MenuItem>
-                                            <MenuItem value="Maybe">Maybe</MenuItem>
-                                        </Select>
-                                    </FormControl>
-                                </Box>
-                            </Box>
-                        </Box>
-
-                        <Divider />
-
-                        {/* Private Notes */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                HR Private Notes
-                            </Typography>
-                            <Alert severity="warning" sx={{ mb: 2 }}>
-                                These notes are confidential and only visible to HR team.
-                            </Alert>
-                            <TextField
-                                fullWidth
-                                label="Internal Notes & Observations"
-                                value={formData.privateNotes}
-                                onChange={(e) => handleInputChange('privateNotes', e.target.value)}
-                                multiline
-                                rows={3}
-                                placeholder="Add any internal observations, follow-up actions, or confidential notes..."
-                            />
-                        </Box>
+                        <Alert severity="warning">HR Private Notes — confidential, only visible to HR.</Alert>
+                        <TextField fullWidth label="Internal Notes" multiline rows={3}
+                            value={form.private_notes} onChange={e => setForm(p => ({ ...p, private_notes: e.target.value }))} />
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setShowInterviewDialog(false)}>Cancel</Button>
-                    <Button 
-                        variant="contained" 
-                        onClick={handleSaveInterview}
-                        startIcon={<SaveIcon />}
-                    >
-                        Save Interview
+                    <Button onClick={() => setShowDialog(false)}>Cancel</Button>
+                    <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSave} disabled={submitting}>
+                        {submitting ? <CircularProgress size={20} /> : 'Save Interview'}
                     </Button>
                 </DialogActions>
             </Dialog>

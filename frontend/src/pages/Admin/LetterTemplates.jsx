@@ -1,405 +1,183 @@
 import { useState, useEffect } from 'react';
-import adminService from '../../services/adminService';
 import {
-    Box,
-    Typography,
-    Paper,
-    Button,
-    Card,
-    CardContent,
-    CardActions,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    TextField,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Chip,
-    IconButton,
-    Stack,
-    Alert,
-    Divider,
-    List,
-    ListItem,
-    ListItemText,
-    CircularProgress,
-    Snackbar
+    Box, Typography, Paper, Button, Card, CardContent, CardActions,
+    Dialog, DialogTitle, DialogContent, DialogActions, TextField,
+    FormControl, InputLabel, Select, MenuItem, Chip, IconButton,
+    Stack, Alert, Divider, CircularProgress, Snackbar, Tooltip
 } from '@mui/material';
 import {
-    Add as AddIcon,
-    Edit as EditIcon,
-    Delete as DeleteIcon,
-    Visibility as PreviewIcon,
-    Upload as UploadIcon,
-    Download as DownloadIcon,
-    Description as TemplateIcon
+    Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
+    Visibility as PreviewIcon, ContentCopy as CopyIcon
 } from '@mui/icons-material';
+import documentService from '../../services/documentService';
+
+const categoryColors = {
+    Onboarding: 'primary', Offboarding: 'warning',
+    Payroll: 'success', General: 'info', Legal: 'error'
+};
 
 const LetterTemplates = () => {
-    const [openDialog, setOpenDialog] = useState(false);
-    const [openPreview, setOpenPreview] = useState(false);
-    const [selectedTemplate, setSelectedTemplate] = useState(null);
-    const [editTemplate, setEditTemplate] = useState(null);
     const [templates, setTemplates] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-    const [formData, setFormData] = useState({});
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [editingTemplate, setEditingTemplate] = useState(null);
+    const [previewTemplate, setPreviewTemplate] = useState(null);
+    const [form, setForm] = useState({ template_name: '', template_category: 'General', template_content: '', description: '', is_active: true });
 
-    // Load templates when component mounts
-    useEffect(() => {
-        loadTemplates();
-    }, []);
+    useEffect(() => { loadTemplates(); }, []);
 
     const loadTemplates = async () => {
-        try {
-            setLoading(true);
-            const result = await adminService.getLetterTemplates();
-            if (result.success) {
-                setTemplates(result.data || []);
-            } else {
-                setError(result.error || 'Failed to load templates');
-            }
-        } catch (error) {
-            setError('Failed to load templates');
-            console.error('Load templates error:', error);
-        } finally {
-            setLoading(false);
-        }
+        setLoading(true);
+        const res = await documentService.getTemplates();
+        if (res?.success) setTemplates(Array.isArray(res.data) ? res.data : []);
+        else setError('Failed to load templates');
+        setLoading(false);
     };
 
-    const templateCategories = ['Onboarding', 'Payroll', 'Offboarding', 'General'];
-
-    const placeholders = [
-        '{{EmployeeName}}', '{{EmployeeID}}', '{{Designation}}', '{{Department}}',
-        '{{DOJ}}', '{{LastWorkingDay}}', '{{CompanyName}}', '{{AnnualSalary}}',
-        '{{MonthlySalary}}', '{{AnnualCTC}}', '{{ResponseDate}}', '{{IssueDate}}'
-    ];
-
-    const handleAddTemplate = () => {
-        setEditTemplate(null);
-        setFormData({
-            template_name: '',
-            template_category: 'General',
-            template_content: '',
-            description: '',
-            is_active: true
-        });
-        setOpenDialog(true);
+    const openCreate = () => {
+        setEditingTemplate(null);
+        setForm({ template_name: '', template_category: 'General', template_content: '', description: '', is_active: true });
+        setDialogOpen(true);
     };
 
-    const handleEditTemplate = (template) => {
-        setEditTemplate(template);
-        setFormData({
-            template_name: template.template_name,
-            template_category: template.template_category,
-            template_content: template.template_content,
-            description: template.description,
-            is_active: template.is_active
-        });
-        setOpenDialog(true);
+    const openEdit = (t) => {
+        setEditingTemplate(t);
+        setForm({ template_name: t.template_name, template_category: t.template_category, template_content: t.template_content, description: t.description || '', is_active: t.is_active });
+        setDialogOpen(true);
     };
 
-    const handlePreviewTemplate = (template) => {
-        setSelectedTemplate(template);
-        setOpenPreview(true);
-    };
-
-    const handleCloseDialog = () => {
-        setOpenDialog(false);
-        setEditTemplate(null);
-        setFormData({});
-    };
-
-    const handleClosePreview = () => {
-        setOpenPreview(false);
-        setSelectedTemplate(null);
-    };
-
-    const handleFormChange = (field, value) => {
-        setFormData(prev => ({
-            ...prev,
-            [field]: value
-        }));
-    };
-
-    const handleSubmit = async () => {
-        try {
-            setLoading(true);
-            let result;
-
-            if (editTemplate) {
-                result = await adminService.updateLetterTemplate(editTemplate.template_id, formData);
-            } else {
-                result = await adminService.addLetterTemplate(formData);
-            }
-
-            if (result.success) {
-                setSuccess(`Template ${editTemplate ? 'updated' : 'added'} successfully`);
-                handleCloseDialog();
-                loadTemplates(); // Reload templates
-            } else {
-                setError(result.error || 'Operation failed');
-            }
-        } catch (error) {
-            setError('Operation failed');
-            console.error('Submit error:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleDeleteTemplate = async (templateId) => {
-        if (!window.confirm('Are you sure you want to delete this template?')) {
+    const handleSave = async () => {
+        if (!form.template_name.trim() || !form.template_content.trim()) {
+            setError('Template name and content are required');
             return;
         }
-
-        try {
-            setLoading(true);
-            const result = await adminService.deleteLetterTemplate(templateId);
-            
-            if (result.success) {
-                setSuccess('Template deleted successfully');
-                loadTemplates(); // Reload templates
-            } else {
-                setError(result.error || 'Failed to delete template');
-            }
-        } catch (error) {
-            setError('Failed to delete template');
-            console.error('Delete error:', error);
-        } finally {
-            setLoading(false);
+        setSaving(true);
+        const res = editingTemplate
+            ? await documentService.updateTemplate(editingTemplate.template_id, form)
+            : await documentService.createTemplate(form);
+        if (res?.success) {
+            setSuccess(editingTemplate ? 'Template updated' : 'Template created');
+            document.activeElement?.blur();
+            setDialogOpen(false);
+            loadTemplates();
+        } else {
+            setError(res?.message || 'Failed to save template');
         }
+        setSaving(false);
     };
 
-    const getStatusColor = (status) => {
-        return status ? 'success' : 'default';
+    const handleDelete = async (templateId) => {
+        if (!window.confirm('Deactivate this template?')) return;
+        const res = await documentService.deleteTemplate(templateId);
+        if (res?.success) { setSuccess('Template deactivated'); loadTemplates(); }
+        else setError('Failed to deactivate template');
     };
 
-    const getCategoryColor = (category) => {
-        switch (category) {
-            case 'Onboarding':
-                return 'primary';
-            case 'Payroll':
-                return 'success';
-            case 'Offboarding':
-                return 'warning';
-            case 'General':
-                return 'info';
-            default:
-                return 'default';
-        }
+    const insertPlaceholder = (key) => {
+        setForm(prev => ({ ...prev, template_content: prev.template_content + key }));
     };
 
     return (
         <Box>
-            <Alert severity="info" sx={{ mb: 3 }}>
-                Letter templates configured here will be used by Onboarding, Payroll, and Offboarding modules for document generation.
-            </Alert>
-
-            {/* Error/Success Messages */}
-            <Snackbar 
-                open={!!error} 
-                autoHideDuration={6000} 
-                onClose={() => setError('')}
-            >
-                <Alert severity="error" onClose={() => setError('')}>
-                    {error}
-                </Alert>
+            <Snackbar open={!!error} autoHideDuration={5000} onClose={() => setError('')}>
+                <Alert severity="error" onClose={() => setError('')}>{error}</Alert>
+            </Snackbar>
+            <Snackbar open={!!success} autoHideDuration={4000} onClose={() => setSuccess('')}>
+                <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>
             </Snackbar>
 
-            <Snackbar 
-                open={!!success} 
-                autoHideDuration={6000} 
-                onClose={() => setSuccess('')}
-            >
-                <Alert severity="success" onClose={() => setSuccess('')}>
-                    {success}
-                </Alert>
-            </Snackbar>
-
-            {/* Header Actions */}
-            <Box sx={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center', 
-                mb: 3,
-                flexWrap: 'wrap',
-                gap: 2
-            }}>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Letter Templates ({templates.length})
-                </Typography>
-                <Stack direction="row" spacing={1}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<UploadIcon />}
-                    >
-                        Import Templates
-                    </Button>
-                    <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={handleAddTemplate}
-                    >
-                        Add Template
-                    </Button>
-                </Stack>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Box>
+                    <Typography variant="h6" fontWeight={600}>Letter Templates</Typography>
+                    <Typography variant="body2" color="text.secondary">Create reusable templates with dynamic placeholders</Typography>
+                </Box>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>New Template</Button>
             </Box>
 
-            {/* Templates Grid */}
             {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                    <CircularProgress />
-                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}><CircularProgress /></Box>
             ) : (
-                <Box sx={{ 
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
-                    gap: 2,
-                    mb: 4
-                }}>
-                    {templates.map((template) => (
-                        <Card key={template.template_id}>
-                            <CardContent>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                                    <Box>
-                                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                                            {template.template_name}
-                                        </Typography>
-                                        <Chip 
-                                            label={template.template_category} 
-                                            color={getCategoryColor(template.template_category)}
-                                            size="small"
-                                            sx={{ mb: 1 }}
-                                        />
-                                    </Box>
-                                    <Chip 
-                                        label={template.is_active ? 'Active' : 'Inactive'} 
-                                        color={getStatusColor(template.is_active)}
-                                        size="small"
-                                    />
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2,1fr)', lg: 'repeat(3,1fr)' }, gap: 2, mb: 4 }}>
+                    {templates.map(t => (
+                        <Card key={t.template_id} sx={{ display: 'flex', flexDirection: 'column' }}>
+                            <CardContent sx={{ flex: 1 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                    <Chip label={t.template_category} color={categoryColors[t.template_category] || 'default'} size="small" />
+                                    <Chip label={t.is_active ? 'Active' : 'Inactive'} color={t.is_active ? 'success' : 'default'} size="small" variant="outlined" />
                                 </Box>
-
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    {template.description}
-                                </Typography>
-
-                                <Typography variant="caption" color="text.secondary">
-                                    Last modified: {new Date(template.modified_date).toLocaleDateString()}
+                                <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 1 }}>{t.template_name}</Typography>
+                                {t.description && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t.description}</Typography>}
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                    Modified: {t.modified_date ? new Date(t.modified_date).toLocaleDateString('en-IN') : '—'}
                                 </Typography>
                             </CardContent>
                             <CardActions>
-                                <Button 
-                                    size="small" 
-                                    startIcon={<PreviewIcon />}
-                                    onClick={() => handlePreviewTemplate(template)}
-                                >
-                                    Preview
-                                </Button>
-                                <Button 
-                                    size="small" 
-                                    startIcon={<EditIcon />}
-                                    onClick={() => handleEditTemplate(template)}
-                                    disabled={loading}
-                                >
-                                    Edit
-                                </Button>
-                                <IconButton 
-                                    size="small" 
-                                    color="error"
-                                    onClick={() => handleDeleteTemplate(template.template_id)}
-                                    disabled={loading}
-                                >
-                                    <DeleteIcon />
-                                </IconButton>
+                                <Button size="small" startIcon={<PreviewIcon />} onClick={() => { setPreviewTemplate(t); setPreviewOpen(true); }}>Preview</Button>
+                                <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(t)}>Edit</Button>
+                                <IconButton size="small" color="error" onClick={() => handleDelete(t.template_id)}><DeleteIcon fontSize="small" /></IconButton>
                             </CardActions>
                         </Card>
                     ))}
-                    {templates.length === 0 && !loading && (
-                        <Box sx={{ gridColumn: '1 / -1', textAlign: 'center', p: 4 }}>
-                            <Typography variant="body2" color="text.secondary">
-                                No templates found. Create your first template to get started.
-                            </Typography>
+                    {templates.length === 0 && (
+                        <Box sx={{ gridColumn: '1/-1', textAlign: 'center', py: 6 }}>
+                            <Typography color="text.secondary">No templates yet. Create your first one.</Typography>
                         </Box>
                     )}
                 </Box>
             )}
 
-            {/* Available Placeholders */}
+            {/* Placeholders reference */}
             <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                    Available Placeholders
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Use these placeholders in your templates. They will be automatically replaced with actual data when generating documents.
-                </Typography>
+                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>Available Placeholders</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Click to copy. Use these in template content — they are replaced with real data when generating a letter.</Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {placeholders.map((placeholder, index) => (
-                        <Chip 
-                            key={index}
-                            label={placeholder}
-                            variant="outlined"
-                            size="small"
-                        />
+                    {documentService.PLACEHOLDERS.map(p => (
+                        <Tooltip key={p.key} title={p.desc}>
+                            <Chip label={p.key} variant="outlined" size="small" onClick={() => navigator.clipboard.writeText(p.key)} icon={<CopyIcon sx={{ fontSize: '12px !important' }} />} sx={{ cursor: 'pointer' }} />
+                        </Tooltip>
                     ))}
                 </Box>
             </Paper>
 
-            {/* Add/Edit Template Dialog */}
-            <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-                <DialogTitle>
-                    {editTemplate ? 'Edit Template' : 'Add New Template'}
-                </DialogTitle>
+            {/* Create / Edit Dialog */}
+            <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+                <DialogTitle>{editingTemplate ? 'Edit Template' : 'New Template'}</DialogTitle>
                 <DialogContent>
                     <Stack spacing={2} sx={{ mt: 1 }}>
-                        <TextField
-                            label="Template Name"
-                            fullWidth
-                            value={formData.template_name || ''}
-                            onChange={(e) => handleFormChange('template_name', e.target.value)}
-                            required
-                        />
-                        <FormControl fullWidth>
-                            <InputLabel>Category</InputLabel>
-                            <Select
-                                value={formData.template_category || ''}
-                                onChange={(e) => handleFormChange('template_category', e.target.value)}
-                                label="Category"
-                            >
-                                {templateCategories.map((category) => (
-                                    <MenuItem key={category} value={category}>
-                                        {category}
-                                    </MenuItem>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                            <TextField label="Template Name" value={form.template_name} onChange={e => setForm(p => ({ ...p, template_name: e.target.value }))} required fullWidth />
+                            <FormControl fullWidth>
+                                <InputLabel>Category</InputLabel>
+                                <Select value={form.template_category} label="Category" onChange={e => setForm(p => ({ ...p, template_category: e.target.value }))}>
+                                    {documentService.CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                                </Select>
+                            </FormControl>
+                        </Box>
+                        <TextField label="Description" value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} fullWidth />
+                        <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>Click a placeholder to insert at cursor:</Typography>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1 }}>
+                                {documentService.PLACEHOLDERS.map(p => (
+                                    <Chip key={p.key} label={p.key} size="small" variant="outlined" onClick={() => insertPlaceholder(p.key)} sx={{ cursor: 'pointer', fontSize: '0.7rem' }} />
                                 ))}
-                            </Select>
-                        </FormControl>
-                        <TextField
-                            label="Description"
-                            fullWidth
-                            value={formData.description || ''}
-                            onChange={(e) => handleFormChange('description', e.target.value)}
-                        />
+                            </Box>
+                        </Box>
                         <TextField
                             label="Template Content"
-                            multiline
-                            rows={10}
-                            fullWidth
-                            value={formData.template_content || ''}
-                            onChange={(e) => handleFormChange('template_content', e.target.value)}
-                            placeholder="Enter your template content here. Use placeholders like {{EmployeeName}} for dynamic data."
-                            required
+                            multiline rows={14}
+                            value={form.template_content}
+                            onChange={e => setForm(p => ({ ...p, template_content: e.target.value }))}
+                            placeholder={`Dear {{EmployeeName}},\n\nWe are pleased to offer you the position of {{Designation}} at {{CompanyName}}.\n\nYour CTC will be {{AnnualCTC}} per annum.\n\nDate of Joining: {{DOJ}}\n\nRegards,\nHR Team`}
+                            required fullWidth
+                            sx={{ fontFamily: 'monospace' }}
                         />
                         <FormControl fullWidth>
                             <InputLabel>Status</InputLabel>
-                            <Select
-                                value={formData.is_active !== undefined ? formData.is_active : true}
-                                onChange={(e) => handleFormChange('is_active', e.target.value)}
-                                label="Status"
-                            >
+                            <Select value={form.is_active} label="Status" onChange={e => setForm(p => ({ ...p, is_active: e.target.value }))}>
                                 <MenuItem value={true}>Active</MenuItem>
                                 <MenuItem value={false}>Inactive</MenuItem>
                             </Select>
@@ -407,34 +185,24 @@ const LetterTemplates = () => {
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleCloseDialog} disabled={loading}>Cancel</Button>
-                    <Button 
-                        variant="contained" 
-                        onClick={handleSubmit}
-                        disabled={loading}
-                    >
-                        {loading ? <CircularProgress size={20} /> : (editTemplate ? 'Update' : 'Create')}
+                    <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+                    <Button variant="contained" onClick={handleSave} disabled={saving}>
+                        {saving ? <CircularProgress size={20} /> : (editingTemplate ? 'Update' : 'Create')}
                     </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* Template Preview Dialog */}
-            <Dialog open={openPreview} onClose={handleClosePreview} maxWidth="md" fullWidth>
-                <DialogTitle>
-                    Template Preview: {selectedTemplate?.template_name}
-                </DialogTitle>
+            {/* Preview Dialog */}
+            <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} maxWidth="md" fullWidth>
+                <DialogTitle>{previewTemplate?.template_name}</DialogTitle>
                 <DialogContent>
-                    <Paper sx={{ p: 3, bgcolor: 'grey.50', whiteSpace: 'pre-line' }}>
-                        <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
-                            {selectedTemplate?.template_content}
-                        </Typography>
+                    <Chip label={previewTemplate?.template_category} color={categoryColors[previewTemplate?.template_category] || 'default'} size="small" sx={{ mb: 2 }} />
+                    <Paper sx={{ p: 3, bgcolor: 'grey.50', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem', lineHeight: 1.8 }}>
+                        {previewTemplate?.template_content}
                     </Paper>
                 </DialogContent>
                 <DialogActions>
-                    <Button startIcon={<DownloadIcon />}>
-                        Download
-                    </Button>
-                    <Button onClick={handleClosePreview}>Close</Button>
+                    <Button onClick={() => setPreviewOpen(false)}>Close</Button>
                 </DialogActions>
             </Dialog>
         </Box>

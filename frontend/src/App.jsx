@@ -3,6 +3,9 @@ import { useAuth } from './context/AuthContext';
 import ProtectedRoute from './routes/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import VerifyResetCode from './pages/VerifyResetCode';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
 import EmployeeProfile from './pages/Employees/EmployeeProfile';
@@ -14,7 +17,10 @@ import Payroll from './pages/Payroll';
 import Offboarding from './pages/Offboarding';
 import Admin from './pages/Admin';
 import Setup from './pages/Setup';
+import Documents from './pages/Documents';
 import KioskAuth from './pages/KioskAuth';
+import Notifications from './pages/Notifications';
+import CompanyPolicies from './pages/CompanyPolicies';
 
 function App() {
   const { user } = useAuth();
@@ -26,6 +32,20 @@ function App() {
         <Route
           path="/login"
           element={user ? <Navigate to="/dashboard" replace /> : <Login />}
+        />
+        
+        {/* Forgot Password Routes */}
+        <Route
+          path="/forgot-password"
+          element={user ? <Navigate to="/dashboard" replace /> : <ForgotPassword />}
+        />
+        <Route
+          path="/verify-reset-code"
+          element={user ? <Navigate to="/dashboard" replace /> : <VerifyResetCode />}
+        />
+        <Route
+          path="/reset-password"
+          element={user ? <Navigate to="/dashboard" replace /> : <ResetPassword />}
         />
         
         {/* Kiosk Route - Requires PIN authentication */}
@@ -148,6 +168,39 @@ function App() {
             <ProtectedRoute requiredPage="setup">
               <Layout>
                 <Setup />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/documents"
+          element={
+            <ProtectedRoute requiredPage="documents">
+              <Layout>
+                <Documents />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute requiredPage="notifications">
+              <Layout>
+                <Notifications />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/policies"
+          element={
+            <ProtectedRoute requiredPage="dashboard">
+              <Layout>
+                <CompanyPolicies />
               </Layout>
             </ProtectedRoute>
           }

@@ -1084,3 +1084,337 @@ ALTER TABLE [dbo].[kiosk_attendance_logs] CHECK CONSTRAINT [fk_kiosk_logs_kiosk]
 GO
 
 
+PAYROLL TABLES:
+
+USE [UDHIM_HR]
+GO
+/****** Object:  Table [dbo].[employee_payroll_summary]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[employee_payroll_summary](
+	[summary_id] [int] IDENTITY(1,1) NOT NULL,
+	[period_id] [int] NOT NULL,
+	[employee_id] [int] NOT NULL,
+	[days_in_month] [int] NOT NULL,
+	[days_worked] [decimal](5, 2) NOT NULL,
+	[days_absent] [decimal](5, 2) NOT NULL,
+	[days_leave] [decimal](5, 2) NOT NULL,
+	[overtime_hours] [decimal](6, 2) NOT NULL,
+	[gross_salary] [decimal](12, 2) NOT NULL,
+	[total_earnings] [decimal](12, 2) NOT NULL,
+	[total_deductions] [decimal](12, 2) NOT NULL,
+	[net_salary] [decimal](12, 2) NOT NULL,
+	[employer_contributions] [decimal](12, 2) NOT NULL,
+	[payslip_generated] [bit] NOT NULL,
+	[payslip_path] [varchar](500) NULL,
+	[payment_status] [varchar](20) NOT NULL,
+	[payment_date] [date] NULL,
+	[payment_reference] [varchar](100) NULL,
+	[created_at] [datetime] NOT NULL,
+	[updated_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_employee_payroll_summary] PRIMARY KEY CLUSTERED 
+(
+	[summary_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_period_employee_summary] UNIQUE NONCLUSTERED 
+(
+	[period_id] ASC,
+	[employee_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[employee_salary_structure]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[employee_salary_structure](
+	[structure_id] [int] IDENTITY(1,1) NOT NULL,
+	[employee_id] [int] NOT NULL,
+	[component_id] [int] NOT NULL,
+	[amount] [decimal](10, 2) NULL,
+	[percentage] [decimal](5, 2) NULL,
+	[formula] [varchar](500) NULL,
+	[effective_from] [date] NOT NULL,
+	[effective_to] [date] NULL,
+	[is_active] [bit] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[updated_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_employee_salary_structure] PRIMARY KEY CLUSTERED 
+(
+	[structure_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[payroll_audit_log]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[payroll_audit_log](
+	[log_id] [int] IDENTITY(1,1) NOT NULL,
+	[period_id] [int] NULL,
+	[employee_id] [int] NULL,
+	[action_type] [varchar](50) NOT NULL,
+	[table_name] [varchar](100) NOT NULL,
+	[record_id] [int] NOT NULL,
+	[old_values] [nvarchar](max) NULL,
+	[new_values] [nvarchar](max) NULL,
+	[reason] [varchar](500) NULL,
+	[performed_by] [int] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_payroll_audit_log] PRIMARY KEY CLUSTERED 
+(
+	[log_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[payroll_calculations]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[payroll_calculations](
+	[calculation_id] [int] IDENTITY(1,1) NOT NULL,
+	[period_id] [int] NOT NULL,
+	[employee_id] [int] NOT NULL,
+	[component_id] [int] NOT NULL,
+	[calculated_amount] [decimal](10, 2) NOT NULL,
+	[base_amount] [decimal](10, 2) NULL,
+	[calculation_details] [varchar](1000) NULL,
+	[is_manual_override] [bit] NOT NULL,
+	[override_reason] [varchar](500) NULL,
+	[created_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_payroll_calculations] PRIMARY KEY CLUSTERED 
+(
+	[calculation_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_period_employee_component] UNIQUE NONCLUSTERED 
+(
+	[period_id] ASC,
+	[employee_id] ASC,
+	[component_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[payroll_components]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[payroll_components](
+	[component_id] [int] IDENTITY(1,1) NOT NULL,
+	[component_code] [varchar](20) NOT NULL,
+	[component_name] [varchar](100) NOT NULL,
+	[component_type] [varchar](30) NOT NULL,
+	[calculation_type] [varchar](20) NOT NULL,
+	[is_taxable] [bit] NOT NULL,
+	[is_statutory] [bit] NOT NULL,
+	[display_order] [int] NOT NULL,
+	[is_active] [bit] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[updated_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_payroll_components] PRIMARY KEY CLUSTERED 
+(
+	[component_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_component_code] UNIQUE NONCLUSTERED 
+(
+	[component_code] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[payroll_periods]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[payroll_periods](
+	[period_id] [int] IDENTITY(1,1) NOT NULL,
+	[period_name] [varchar](50) NOT NULL,
+	[period_type] [varchar](20) NOT NULL,
+	[start_date] [date] NOT NULL,
+	[end_date] [date] NOT NULL,
+	[salary_date] [date] NOT NULL,
+	[status] [varchar](20) NOT NULL,
+	[total_employees] [int] NOT NULL,
+	[total_gross] [decimal](15, 2) NOT NULL,
+	[total_deductions] [decimal](15, 2) NOT NULL,
+	[total_net] [decimal](15, 2) NOT NULL,
+	[processed_by] [int] NULL,
+	[processed_at] [datetime] NULL,
+	[created_at] [datetime] NOT NULL,
+	[updated_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_payroll_periods] PRIMARY KEY CLUSTERED 
+(
+	[period_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[statutory_settings]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[statutory_settings](
+	[setting_id] [int] IDENTITY(1,1) NOT NULL,
+	[setting_type] [varchar](20) NOT NULL,
+	[state_code] [varchar](10) NULL,
+	[min_salary] [decimal](10, 2) NOT NULL,
+	[max_salary] [decimal](10, 2) NULL,
+	[employee_rate] [decimal](5, 2) NOT NULL,
+	[employer_rate] [decimal](5, 2) NOT NULL,
+	[fixed_amount] [decimal](8, 2) NULL,
+	[effective_from] [date] NOT NULL,
+	[effective_to] [date] NULL,
+	[is_active] [bit] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_statutory_settings] PRIMARY KEY CLUSTERED 
+(
+	[setting_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[tax_slabs]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tax_slabs](
+	[slab_id] [int] IDENTITY(1,1) NOT NULL,
+	[financial_year] [varchar](10) NOT NULL,
+	[tax_regime] [varchar](20) NOT NULL,
+	[min_amount] [decimal](12, 2) NOT NULL,
+	[max_amount] [decimal](12, 2) NULL,
+	[tax_rate] [decimal](5, 2) NOT NULL,
+	[cess_rate] [decimal](5, 2) NOT NULL,
+	[is_active] [bit] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_tax_slabs] PRIMARY KEY CLUSTERED 
+(
+	[slab_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT ((0)) FOR [days_absent]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT ((0)) FOR [days_leave]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT ((0)) FOR [overtime_hours]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT ((0)) FOR [employer_contributions]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT ((0)) FOR [payslip_generated]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT ('PENDING') FOR [payment_status]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] ADD  DEFAULT (getdate()) FOR [updated_at]
+GO
+ALTER TABLE [dbo].[employee_salary_structure] ADD  DEFAULT ((1)) FOR [is_active]
+GO
+ALTER TABLE [dbo].[employee_salary_structure] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[employee_salary_structure] ADD  DEFAULT (getdate()) FOR [updated_at]
+GO
+ALTER TABLE [dbo].[payroll_audit_log] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[payroll_calculations] ADD  DEFAULT ((0)) FOR [is_manual_override]
+GO
+ALTER TABLE [dbo].[payroll_calculations] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[payroll_components] ADD  DEFAULT ((1)) FOR [is_taxable]
+GO
+ALTER TABLE [dbo].[payroll_components] ADD  DEFAULT ((0)) FOR [is_statutory]
+GO
+ALTER TABLE [dbo].[payroll_components] ADD  DEFAULT ((0)) FOR [display_order]
+GO
+ALTER TABLE [dbo].[payroll_components] ADD  DEFAULT ((1)) FOR [is_active]
+GO
+ALTER TABLE [dbo].[payroll_components] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[payroll_components] ADD  DEFAULT (getdate()) FOR [updated_at]
+GO
+ALTER TABLE [dbo].[payroll_periods] ADD  DEFAULT ('DRAFT') FOR [status]
+GO
+ALTER TABLE [dbo].[payroll_periods] ADD  DEFAULT ((0)) FOR [total_employees]
+GO
+ALTER TABLE [dbo].[payroll_periods] ADD  DEFAULT ((0)) FOR [total_gross]
+GO
+ALTER TABLE [dbo].[payroll_periods] ADD  DEFAULT ((0)) FOR [total_deductions]
+GO
+ALTER TABLE [dbo].[payroll_periods] ADD  DEFAULT ((0)) FOR [total_net]
+GO
+ALTER TABLE [dbo].[payroll_periods] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[payroll_periods] ADD  DEFAULT (getdate()) FOR [updated_at]
+GO
+ALTER TABLE [dbo].[statutory_settings] ADD  DEFAULT ((0)) FOR [min_salary]
+GO
+ALTER TABLE [dbo].[statutory_settings] ADD  DEFAULT ((0)) FOR [employee_rate]
+GO
+ALTER TABLE [dbo].[statutory_settings] ADD  DEFAULT ((0)) FOR [employer_rate]
+GO
+ALTER TABLE [dbo].[statutory_settings] ADD  DEFAULT ((1)) FOR [is_active]
+GO
+ALTER TABLE [dbo].[statutory_settings] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[tax_slabs] ADD  DEFAULT ((0)) FOR [cess_rate]
+GO
+ALTER TABLE [dbo].[tax_slabs] ADD  DEFAULT ((1)) FOR [is_active]
+GO
+ALTER TABLE [dbo].[tax_slabs] ADD  DEFAULT (getdate()) FOR [created_at]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary]  WITH CHECK ADD  CONSTRAINT [FK_payroll_summary_employee] FOREIGN KEY([employee_id])
+REFERENCES [dbo].[employees] ([employee_id])
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] CHECK CONSTRAINT [FK_payroll_summary_employee]
+GO
+ALTER TABLE [dbo].[employee_payroll_summary]  WITH CHECK ADD  CONSTRAINT [FK_payroll_summary_period] FOREIGN KEY([period_id])
+REFERENCES [dbo].[payroll_periods] ([period_id])
+GO
+ALTER TABLE [dbo].[employee_payroll_summary] CHECK CONSTRAINT [FK_payroll_summary_period]
+GO
+ALTER TABLE [dbo].[employee_salary_structure]  WITH CHECK ADD  CONSTRAINT [FK_emp_salary_component] FOREIGN KEY([component_id])
+REFERENCES [dbo].[payroll_components] ([component_id])
+GO
+ALTER TABLE [dbo].[employee_salary_structure] CHECK CONSTRAINT [FK_emp_salary_component]
+GO
+ALTER TABLE [dbo].[employee_salary_structure]  WITH CHECK ADD  CONSTRAINT [FK_emp_salary_employee] FOREIGN KEY([employee_id])
+REFERENCES [dbo].[employees] ([employee_id])
+GO
+ALTER TABLE [dbo].[employee_salary_structure] CHECK CONSTRAINT [FK_emp_salary_employee]
+GO
+ALTER TABLE [dbo].[payroll_audit_log]  WITH CHECK ADD  CONSTRAINT [FK_payroll_audit_user] FOREIGN KEY([performed_by])
+REFERENCES [dbo].[users] ([user_id])
+GO
+ALTER TABLE [dbo].[payroll_audit_log] CHECK CONSTRAINT [FK_payroll_audit_user]
+GO
+ALTER TABLE [dbo].[payroll_calculations]  WITH CHECK ADD  CONSTRAINT [FK_calc_component] FOREIGN KEY([component_id])
+REFERENCES [dbo].[payroll_components] ([component_id])
+GO
+ALTER TABLE [dbo].[payroll_calculations] CHECK CONSTRAINT [FK_calc_component]
+GO
+ALTER TABLE [dbo].[payroll_calculations]  WITH CHECK ADD  CONSTRAINT [FK_calc_employee] FOREIGN KEY([employee_id])
+REFERENCES [dbo].[employees] ([employee_id])
+GO
+ALTER TABLE [dbo].[payroll_calculations] CHECK CONSTRAINT [FK_calc_employee]
+GO
+ALTER TABLE [dbo].[payroll_calculations]  WITH CHECK ADD  CONSTRAINT [FK_calc_period] FOREIGN KEY([period_id])
+REFERENCES [dbo].[payroll_periods] ([period_id])
+GO
+ALTER TABLE [dbo].[payroll_calculations] CHECK CONSTRAINT [FK_calc_period]
+GO
+ALTER TABLE [dbo].[payroll_periods]  WITH CHECK ADD  CONSTRAINT [FK_payroll_processed_by] FOREIGN KEY([processed_by])
+REFERENCES [dbo].[users] ([user_id])
+GO
+ALTER TABLE [dbo].[payroll_periods] CHECK CONSTRAINT [FK_payroll_processed_by]
+GO
+/****** Object:  StoredProcedure [dbo].[proc_calculate_employee_payroll]    Script Date: 11-03-2026 16:39:46 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO

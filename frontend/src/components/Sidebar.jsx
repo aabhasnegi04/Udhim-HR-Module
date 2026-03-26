@@ -26,6 +26,8 @@ import {
     AccountTree as OrgChartIcon,
     ChevronLeft as ChevronLeftIcon,
     Close as CloseIcon,
+    Description as DocumentsIcon,
+    Policy as PolicyIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -54,6 +56,8 @@ const employeeMenuItems = [
     { id: 'attendance', label: 'My Attendance', icon: <AttendanceIcon />, path: '/attendance' },
     { id: 'leave', label: 'My Leaves', icon: <LeaveIcon />, path: '/leave' },
     { id: 'payroll', label: 'My Payroll', icon: <PayrollIcon />, path: '/payroll' },
+    { id: 'documents', label: 'Documents', icon: <DocumentsIcon />, path: '/documents' },
+    { id: 'policies', label: 'Company Policies', icon: <PolicyIcon />, path: '/policies' },
 ];
 
 const hrMenuItems = [
@@ -64,6 +68,7 @@ const hrMenuItems = [
     { id: 'leave', label: 'Leave', icon: <LeaveIcon />, path: '/leave' },
     { id: 'payroll', label: 'Payroll', icon: <PayrollIcon />, path: '/payroll' },
     { id: 'offboarding', label: 'Offboarding', icon: <ExitToAppIcon />, path: '/offboarding' },
+    { id: 'documents', label: 'Documents', icon: <DocumentsIcon />, path: '/documents' },
     { id: 'setup', label: 'Setup', icon: <SetupIcon />, path: '/setup' },
     { id: 'admin', label: 'Admin', icon: <AdminIcon />, path: '/admin' },
 ];
@@ -74,6 +79,7 @@ const managerMenuItems = [
     { id: 'org-chart', label: 'Org Chart', icon: <OrgChartIcon />, path: '/org-chart' },
     { id: 'attendance', label: 'Team Attendance', icon: <AttendanceIcon />, path: '/attendance' },
     { id: 'leave', label: 'Leave Approvals', icon: <LeaveIcon />, path: '/leave' },
+    { id: 'documents', label: 'Documents', icon: <DocumentsIcon />, path: '/documents' },
 ];
 
 const Sidebar = ({ mobileOpen, onMobileClose }) => {

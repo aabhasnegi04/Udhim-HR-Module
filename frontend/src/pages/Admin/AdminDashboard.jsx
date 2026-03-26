@@ -6,12 +6,7 @@ import {
     Card,
     CardContent,
     Button,
-    List,
-    ListItem,
-    ListItemText,
-    ListItemIcon,
     Chip,
-    Divider,
     Stack,
     CircularProgress,
     Alert
@@ -22,24 +17,38 @@ import {
     Business as BusinessIcon,
     Warning as WarningIcon,
     Upload as UploadIcon,
-    Event as EventIcon,
-    Description as TemplateIcon,
     TrendingUp as TrendingUpIcon,
     CheckCircle as CheckCircleIcon,
-    Schedule as ScheduleIcon
 } from '@mui/icons-material';
+import { useProfileSwitching } from '../../context/ProfileSwitchingContext';
 import adminService from '../../services/adminService';
 
 const AdminDashboard = () => {
     const [dashboardStats, setDashboardStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const { currentView, switchView, canSwitchViews, getAvailableViews } = useProfileSwitching();
+
+    // Ensure user is in HR view when accessing admin dashboard
+    useEffect(() => {
+        if (currentView !== 'HR' && getAvailableViews().includes('HR')) {
+            console.log('🔄 Switching to HR view for admin access');
+            switchView('HR');
+        }
+    }, [currentView, switchView, getAvailableViews]);
 
     // Fetch dashboard stats from API
     useEffect(() => {
         const fetchDashboardStats = async () => {
             try {
                 setLoading(true);
+                setError(null);
+                
+                // Wait a bit for profile switching to complete
+                if (currentView !== 'HR' && getAvailableViews().includes('HR')) {
+                    return; // Wait for the view switch to complete
+                }
+                
                 const result = await adminService.getDashboardStats();
                 
                 if (result.success) {
@@ -55,8 +64,11 @@ const AdminDashboard = () => {
             }
         };
 
-        fetchDashboardStats();
-    }, []);
+        // Only fetch data when we're in HR view or if HR view is not available
+        if (currentView === 'HR' || !getAvailableViews().includes('HR')) {
+            fetchDashboardStats();
+        }
+    }, [currentView, getAvailableViews]);
 
     // Create overview stats from API data
     const overviewStats = dashboardStats ? [
@@ -98,16 +110,16 @@ const AdminDashboard = () => {
             action: 'Upload Now'
         },
         {
-            title: 'Upload Holiday Calendar',
-            description: 'Set holidays for the current year',
-            icon: <EventIcon />,
-            action: 'Manage Holidays'
+            title: 'Manage Master Data',
+            description: 'Add or update departments and designations',
+            icon: <BusinessIcon />,
+            action: 'Open Master Data'
         },
         {
-            title: 'Manage Templates',
-            description: 'Update letter and document templates',
-            icon: <TemplateIcon />,
-            action: 'Edit Templates'
+            title: 'View System Reports',
+            description: 'Download and review system-wide reports',
+            icon: <TrendingUpIcon />,
+            action: 'View Reports'
         }
     ];
 
@@ -155,8 +167,30 @@ const AdminDashboard = () => {
 
             {/* Error State */}
             {error && (
-                <Alert severity="error" sx={{ mb: 3 }}>
-                    {error}
+                <Alert 
+                    severity={error.includes('Invalid or inactive company') || error.includes('Access denied') ? 'warning' : 'error'} 
+                    sx={{ mb: 3 }}
+                >
+                    {error.includes('Invalid or inactive company') ? 
+                        'Company validation failed. Please ensure you are logged in with the correct company context.' :
+                        error.includes('Access denied') ?
+                        'Access denied. Admin dashboard requires HR permissions. Please contact your administrator.' :
+                        error
+                    }
+                </Alert>
+            )}
+
+            {/* Access Control Message */}
+            {currentView !== 'HR' && getAvailableViews().includes('HR') && (
+                <Alert severity="info" sx={{ mb: 3 }}>
+                    Switching to HR view to access admin dashboard...
+                </Alert>
+            )}
+
+            {/* No HR Access Message */}
+            {!getAvailableViews().includes('HR') && (
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                    Admin dashboard requires HR permissions. Please contact your administrator to access this section.
                 </Alert>
             )}
 
@@ -259,44 +293,19 @@ const AdminDashboard = () => {
                             flex: { xs: '1', lg: '1 1 40%' },
                             p: 3 
                         }}>
-                            <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
-                                Recent Admin Activity
+                            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                                Recent System Activity
                             </Typography>
-                            <List sx={{ p: 0 }}>
-                                {recentActivity.map((activity, index) => (
-                                    <Box key={index}>
-                                        <ListItem sx={{ px: 0, py: 1.5 }}>
-                                            <ListItemIcon sx={{ minWidth: 40 }}>
-                                                <Box sx={{
-                                                    width: 8,
-                                                    height: 8,
-                                                    borderRadius: '50%',
-                                                    bgcolor: activity.type === 'success' ? 'success.main' :
-                                                            activity.type === 'warning' ? 'warning.main' : 'info.main'
-                                                }} />
-                                            </ListItemIcon>
-                                            <ListItemText
-                                                primary={
-                                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                        {activity.action}
-                                                    </Typography>
-                                                }
-                                                secondary={
-                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                                                        <Typography variant="caption" color="text.secondary">
-                                                            by {activity.user}
-                                                        </Typography>
-                                                        <Typography variant="caption" color="text.secondary">
-                                                            • {activity.time}
-                                                        </Typography>
-                                                    </Box>
-                                                }
-                                            />
-                                        </ListItem>
-                                        {index < recentActivity.length - 1 && <Divider />}
-                                    </Box>
-                                ))}
-                            </List>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                                Audit logs will appear here once enabled.
+                            </Typography>
+                            <Box sx={{
+                                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                justifyContent: 'center', py: 4, color: 'text.disabled',
+                            }}>
+                                <TrendingUpIcon sx={{ fontSize: 48, mb: 1, opacity: 0.3 }} />
+                                <Typography variant="body2">No activity logs yet</Typography>
+                            </Box>
                         </Paper>
                     </Box>
                 </>

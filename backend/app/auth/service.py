@@ -1,7 +1,7 @@
 import bcrypt
 from flask import current_app
 from flask_jwt_extended import create_access_token
-from app.database.executor import StoredProcedureExecutor
+from app.database.multi_tenant_executor import MultiTenantExecutor
 
 
 class AuthService:
@@ -33,7 +33,7 @@ class AuthService:
         try:
             # Get user data using stored procedure
             parameters = {'email': email}
-            result = StoredProcedureExecutor.execute_procedure('proc_authenticate_user', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_authenticate_user', parameters)
             
             if not result["success"] or not result["data"]:
                 return {
@@ -74,7 +74,7 @@ class AuthService:
             
             # Check if password change is required
             password_check_params = {'user_id': user_id}
-            password_check_result = StoredProcedureExecutor.execute_procedure('proc_check_password_change_required', password_check_params)
+            password_check_result = MultiTenantExecutor.execute_procedure('proc_check_password_change_required', password_check_params)
             
             requires_password_change = False
             if password_check_result["success"] and password_check_result["data"]:
@@ -139,7 +139,7 @@ class AuthService:
         """
         try:
             parameters = {'user_id': user_id}
-            result = StoredProcedureExecutor.execute_procedure('proc_get_user_by_id', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_user_by_id', parameters)
             
             if result["success"] and result["data"]:
                 user_data = result["data"]
@@ -168,7 +168,7 @@ class AuthService:
         try:
             # Get current user data to verify current password
             parameters = {'user_id': user_id}
-            result = StoredProcedureExecutor.execute_procedure('proc_get_user_by_id', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_user_by_id', parameters)
             
             if not result["success"] or not result["data"]:
                 return {
@@ -203,7 +203,7 @@ class AuthService:
             
             # Update password in database
             update_params = {'user_id': user_id, 'new_password_hash': new_hash}
-            update_result = StoredProcedureExecutor.execute_procedure('proc_change_user_password', update_params)
+            update_result = MultiTenantExecutor.execute_procedure('proc_change_user_password', update_params)
             
             if update_result["success"] and update_result["data"]:
                 proc_result = update_result["data"][0]
@@ -247,7 +247,7 @@ class AuthService:
         """
         try:
             parameters = {'user_id': user_id}
-            result = StoredProcedureExecutor.execute_procedure('proc_get_user_profile_switching_info', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_user_profile_switching_info', parameters)
             
             if result["success"] and result["data"]:
                 profile_data = result["data"][0]

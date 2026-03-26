@@ -1,19 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
-    Box,
-    Card,
-    CardContent,
-    Typography,
-    Button,
-    Paper,
-    List,
-    ListItem,
-    ListItemText,
-    ListItemIcon,
-    Divider,
-    Avatar,
-    CircularProgress,
-    Alert,
+    Box, Card, CardContent, Typography, Button, Paper,
+    List, ListItem, ListItemText, ListItemIcon, Divider,
+    Avatar, CircularProgress, Alert, Chip,
 } from '@mui/material';
 import {
     People as PeopleIcon,
@@ -28,587 +17,443 @@ import {
     Upload as UploadIcon,
     Assessment as AssessmentIcon,
     Description as DescriptionIcon,
+    Warning as WarningIcon,
+    Error as ErrorIcon,
+    Info as InfoIcon,
+    Refresh as RefreshIcon,
+    FiberManualRecord as DotIcon,
 } from '@mui/icons-material';
+import {
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+} from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { useProfileSwitching } from '../context/ProfileSwitchingContext';
 import { useNavigate } from 'react-router-dom';
-import employeeService from '../services/employeeService';
 import dashboardService from '../services/dashboardService';
 import attendanceService from '../services/attendanceService';
 import leaveService from '../services/leaveService';
 import holidayService from '../services/holidayService';
+import apiService from '../services/api';
 import InactiveEmployeeAlert from '../components/InactiveEmployeeAlert';
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+const alertMeta = (severity) => {
+    if (severity === 'error')   return { color: 'error',   icon: <ErrorIcon fontSize="small" /> };
+    if (severity === 'warning') return { color: 'warning', icon: <WarningIcon fontSize="small" /> };
+    return                             { color: 'info',    icon: <InfoIcon fontSize="small" /> };
+};
+
+const getGreeting = () => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+};
 
 const Dashboard = () => {
     const { user } = useAuth();
-    const { currentView, isHRView, isManagerView, isEmployeeView, profileInfo } = useProfileSwitching();
+    const { currentView, isHRView, isEmployeeView, profileInfo } = useProfileSwitching();
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(false); // Initialize as false
+
+    // ── shared ──
     const [error, setError] = useState('');
-    const [isLoadingData, setIsLoadingData] = useState(false); // Prevent multiple simultaneous calls
+
+    // ── HR state ──
+    const [hrLoading, setHrLoading] = useState(false);
     const [stats, setStats] = useState({
-        totalEmployees: 0,
-        presentToday: 0,
-        attendancePercentage: 0,
-        pendingApprovals: 0,
-        payrollAmount: '0',
+        totalEmployees: 0, presentToday: 0, absentToday: 0,
+        onLeaveToday: 0, attendancePercentage: 0, pendingApprovals: 0,
     });
-    
-    // Employee Dashboard specific state
-    const [employeeStats, setEmployeeStats] = useState({
-        daysPresent: 0,
-        leaveBalance: 0,
-        attendanceRate: 0,
-        todayStatus: 'Not Checked In',
-        checkInTime: null
-    });
-    
-    const [specialLeaves, setSpecialLeaves] = useState([]);
-    
-    const [holidays, setHolidays] = useState([]);
-    const [dashboardLoading, setDashboardLoading] = useState(true);
+    const [alerts, setAlerts] = useState([]);
+    const [trend, setTrend] = useState([]);
     const [recentActivities, setRecentActivities] = useState([]);
+
+    // ── Employee state ──
+    const [empLoading, setEmpLoading] = useState(false);
+    const [employeeStats, setEmployeeStats] = useState({
+        daysPresent: 0, leaveBalance: 0, attendanceRate: 0,
+        todayStatus: 'Not Checked In', checkInTime: null,
+    });
+    const [payslipStatus, setPayslipStatus] = useState({ available: false, periodName: null, periodId: null });
+    const [specialLeaves, setSpecialLeaves] = useState([]);
+    const [holidays, setHolidays] = useState([]);
+    const [companyPolicies, setCompanyPolicies] = useState([]);
 
     useEffect(() => {
         if (user?.role === 'HR' && currentView === 'HR') {
-            // Reset employee dashboard loading state when switching to HR view
-            setDashboardLoading(false);
-            loadDashboardData();
+            loadHRDashboard();
         } else if (currentView === 'EMPLOYEE') {
-            // Reset HR dashboard loading state when switching to employee view
-            setLoading(false);
-            loadEmployeeDashboardData();
+            loadEmployeeDashboard();
         }
     }, [currentView, user?.role]);
 
-    const loadDashboardData = async () => {
-        if (isLoadingData) {
-            return;
-        }
-
+    // ─────────────────────────────────────────────────────────────────────────
+    // HR DASHBOARD LOADER
+    // ─────────────────────────────────────────────────────────────────────────
+    const loadHRDashboard = async () => {
+        setHrLoading(true);
+        setError('');
         try {
-            setIsLoadingData(true);
-            setLoading(true);
-            setError('');
+            const [statsRes, alertsRes, trendRes, activitiesRes] = await Promise.allSettled([
+                dashboardService.getHRDashboardStats(),
+                dashboardService.getHRAlerts(),
+                dashboardService.getHRAttendanceTrend(),
+                dashboardService.getHRRecentActivities(5),
+            ]);
 
-            // Only HR users can fetch HR dashboard data when in HR view
-            if (user?.role === 'HR' && currentView === 'HR') {
-                // Add timeout to prevent infinite loading
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Request timeout')), 15000) // 15 second timeout
-                );
-                
-                try {
-                    // Get HR dashboard statistics and recent activities in parallel
-                    const [hrStatsResult, activitiesResult] = await Promise.race([
-                        Promise.all([
-                            dashboardService.getHRDashboardStats(),
-                            dashboardService.getHRRecentActivities(5) // Get last 5 activities
-                        ]),
-                        timeoutPromise
-                    ]);
-                    
-                    // Process HR stats
-                    if (hrStatsResult.success) {
-                        const data = hrStatsResult.data;
-                        setStats({
-                            totalEmployees: data.total_employees || 0,
-                            presentToday: data.present_today || 0,
-                            attendancePercentage: data.attendance_percentage || 0,
-                            pendingApprovals: data.pending_approvals || 0,
-                            payrollAmount: data.payroll_amount || '0',
-                        });
-                    } else {
-                        throw new Error(hrStatsResult.error || 'Failed to fetch HR dashboard stats');
-                    }
-                    
-                    // Process recent activities
-                    if (activitiesResult.success) {
-                        setRecentActivities(activitiesResult.data.activities || []);
-                    } else {
-                        console.warn('Failed to load recent activities:', activitiesResult.error);
-                        setRecentActivities([]);
-                    }
-                } catch (apiError) {
-                    console.warn('HR Dashboard: API failed, using fallback data:', apiError.message);
-                    // Use fallback data to prevent infinite loading
-                    setStats({
-                        totalEmployees: 0,
-                        presentToday: 0,
-                        attendancePercentage: 0,
-                        pendingApprovals: 0,
-                        payrollAmount: '0',
-                    });
-                    setError('Unable to load dashboard data. Please refresh the page.');
-                }
-            } else {
+            if (statsRes.status === 'fulfilled' && statsRes.value.success) {
+                const d = statsRes.value.data;
                 setStats({
-                    totalEmployees: 0,
-                    presentToday: 0,
-                    attendancePercentage: 0,
-                    pendingApprovals: 0,
-                    payrollAmount: '0',
+                    totalEmployees: d.total_employees || 0,
+                    presentToday: d.present_today || 0,
+                    absentToday: d.absent_today ?? Math.max(0, (d.total_employees || 0) - (d.present_today || 0) - (d.on_leave_today || 0)),
+                    onLeaveToday: d.on_leave_today || 0,
+                    attendancePercentage: d.attendance_percentage || 0,
+                    pendingApprovals: d.pending_approvals || 0,
                 });
             }
-        } catch (error) {
-            console.error('HR Dashboard: Load dashboard data error:', error);
+
+            if (alertsRes.status === 'fulfilled' && alertsRes.value.success) {
+                setAlerts(alertsRes.value.data.alerts || []);
+            }
+
+            if (trendRes.status === 'fulfilled' && trendRes.value.success) {
+                setTrend(trendRes.value.data.trend || []);
+            }
+
+            if (activitiesRes.status === 'fulfilled' && activitiesRes.value.success) {
+                setRecentActivities(activitiesRes.value.data.activities || []);
+            }
+        } catch (e) {
             setError('Failed to load dashboard data');
         } finally {
-            setLoading(false);
-            setIsLoadingData(false);
+            setHrLoading(false);
         }
     };
 
-    const loadEmployeeDashboardData = async () => {
-        if (isLoadingData) {
-            return;
-        }
-
+    // ─────────────────────────────────────────────────────────────────────────
+    // EMPLOYEE DASHBOARD LOADER
+    // ─────────────────────────────────────────────────────────────────────────
+    const loadEmployeeDashboard = async () => {
+        setEmpLoading(true);
+        setError('');
         try {
-            setIsLoadingData(true);
-            setDashboardLoading(true);
-            setError('');
+            const [todayRes, leaveRes, holidayRes, empStatsRes, policiesRes] = await Promise.allSettled([
+                attendanceService.getTodayAttendanceStatus(user.employee_id),
+                leaveService.getLeaveBalances(user.employee_id),
+                holidayService.getPublicHolidays(),
+                dashboardService.getEmployeeDashboardStats(),
+                apiService.get('/employees/company-policies'), // Use employee endpoint instead of admin
+            ]);
 
-            // Load today's attendance status (this works)
-            const todayStatusResult = await attendanceService.getTodayAttendanceStatus(user.employee_id);
-            
-            // Load leave balances directly
-            const leaveBalanceResult = await leaveService.getLeaveBalances(user.employee_id);
-            
-            // Try to load employee dashboard stats, but don't fail if it doesn't work
-            let dashboardResult = { success: false, data: null };
-            try {
-                dashboardResult = await dashboardService.getEmployeeDashboardStats();
-            } catch (dashboardError) {
-                console.warn('Employee dashboard API failed, using fallback data:', dashboardError);
-            }
-            
-            // Try to load holidays from public API, fallback to static data
-            let holidaysResult;
-            try {
-                // Use public holiday endpoint that all authenticated users can access
-                holidaysResult = await holidayService.getPublicHolidays();
-            } catch (holidayError) {
-                console.warn('Holiday API failed, using fallback data');
-                holidaysResult = null;
-            }
-            
-            // Use fallback data if API failed
-            if (!holidaysResult || !holidaysResult.success) {
-                const currentYear = new Date().getFullYear();
-                holidaysResult = {
-                    success: true,
-                    data: [
-                        { holiday_id: 1, holiday_name: "Holi", holiday_date: `${currentYear}-03-14` },
-                        { holiday_id: 2, holiday_name: "Good Friday", holiday_date: `${currentYear}-03-29` },
-                        { holiday_id: 3, holiday_name: "Independence Day", holiday_date: `${currentYear}-08-15` },
-                        { holiday_id: 4, holiday_name: "Gandhi Jayanti", holiday_date: `${currentYear}-10-02` },
-                        { holiday_id: 5, holiday_name: "Diwali", holiday_date: `${currentYear}-10-31` },
-                        { holiday_id: 6, holiday_name: "Christmas", holiday_date: `${currentYear}-12-25` },
-                        { holiday_id: 7, holiday_name: "New Year", holiday_date: `${currentYear + 1}-01-01` }
-                    ]
-                };
-            }
-
-            // Process leave balance (sum regular leave types only, exclude special leaves)
-            let totalLeaveBalance = 0;
-            let specialLeaveBalances = [];
-            if (leaveBalanceResult.success && leaveBalanceResult.data) {
-                // Filter out special leave types that shouldn't be included in general balance
-                const specialLeaveTypes = ['Maternity Leave', 'Paternity Leave', 'Bereavement Leave', 'Sabbatical Leave'];
-                
-                // Regular leave types for dashboard total
-                totalLeaveBalance = leaveBalanceResult.data
-                    .filter(balance => !specialLeaveTypes.includes(balance.leave_name))
-                    .reduce((total, balance) => {
-                        return total + (parseFloat(balance.remaining) || 0);
-                    }, 0);
-                
-                // Special leave types for separate display (only non-zero balances)
-                specialLeaveBalances = leaveBalanceResult.data
-                    .filter(balance => specialLeaveTypes.includes(balance.leave_name) && parseFloat(balance.remaining) > 0)
-                    .map(balance => ({
-                        name: balance.leave_name,
-                        remaining: parseFloat(balance.remaining) || 0
-                    }));
-            }
-
-            // Process dashboard stats if available
-            let daysPresent = 0;
-            let attendancePercentage = 0;
-            
-            if (dashboardResult.success && dashboardResult.data) {
-                const data = dashboardResult.data;
-                const attendanceData = data.attendance || {};
-                
-                // For employee view, the attendance data represents their personal stats
-                daysPresent = attendanceData.total_present || 0;
-                const totalDays = attendanceData.total_employees || 1;
-                attendancePercentage = totalDays > 0 ? Math.round((daysPresent / totalDays) * 100) : 0;
-            } else {
-                // Fallback: calculate basic stats from today's status
-                if (todayStatusResult.success && todayStatusResult.data && todayStatusResult.data.has_checked_in) {
-                    daysPresent = 1; // At least today
-                    attendancePercentage = 100; // 100% for today
-                }
-            }
-
-            // Update employee stats
-            setEmployeeStats(prev => ({
-                ...prev,
-                daysPresent: daysPresent,
-                attendanceRate: attendancePercentage,
-                leaveBalance: totalLeaveBalance
-            }));
-            
-            // Update special leaves
-            setSpecialLeaves(specialLeaveBalances);
-
-            // Process today's status
-            if (todayStatusResult.success && todayStatusResult.data) {
-                const todayData = todayStatusResult.data;
+            // today status
+            if (todayRes.status === 'fulfilled' && todayRes.value.success) {
+                const d = todayRes.value.data;
                 setEmployeeStats(prev => ({
                     ...prev,
-                    todayStatus: todayData.has_checked_in ? 'Checked In' : 'Not Checked In',
-                    checkInTime: todayData.check_in_time || null
+                    todayStatus: d.has_checked_in ? 'Checked In' : 'Not Checked In',
+                    checkInTime: d.check_in_time || null,
                 }));
             }
 
-            // Process holidays (get upcoming holidays only)
-            if (holidaysResult.success && holidaysResult.data) {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0); // Reset time to start of day for accurate comparison
-                
-                const upcomingHolidays = holidaysResult.data
-                    .filter(holiday => {
-                        const holidayDate = new Date(holiday.holiday_date);
-                        return holidayDate >= today; // Include today and future dates
-                    })
-                    .sort((a, b) => new Date(a.holiday_date) - new Date(b.holiday_date))
-                    .slice(0, 5); // Get next 5 holidays
-                    
-                setHolidays(upcomingHolidays);
+            // leave balances
+            if (leaveRes.status === 'fulfilled' && leaveRes.value.success) {
+                const specialTypes = ['Maternity Leave', 'Paternity Leave', 'Bereavement Leave', 'Sabbatical Leave'];
+                const data = leaveRes.value.data || [];
+                const total = data
+                    .filter(b => !specialTypes.includes(b.leave_name))
+                    .reduce((s, b) => s + (parseFloat(b.remaining) || 0), 0);
+                const special = data
+                    .filter(b => specialTypes.includes(b.leave_name) && parseFloat(b.remaining) > 0)
+                    .map(b => ({ name: b.leave_name, remaining: parseFloat(b.remaining) }));
+                setEmployeeStats(prev => ({ ...prev, leaveBalance: total }));
+                setSpecialLeaves(special);
             }
 
-        } catch (error) {
-            console.error('Load employee dashboard data error:', error);
+            // employee stats (attendance this month + payslip status)
+            if (empStatsRes.status === 'fulfilled' && empStatsRes.value.success) {
+                const d = empStatsRes.value.data;
+                const att = d.attendance || {};
+                setEmployeeStats(prev => ({
+                    ...prev,
+                    daysPresent: att.days_present || 0,
+                    attendanceRate: att.attendance_percentage || 0,
+                }));
+                if (d.payslip_status) {
+                    setPayslipStatus({
+                        available: d.payslip_status.available,
+                        periodName: d.payslip_status.period_name,
+                        periodId: d.payslip_status.period_id,
+                    });
+                }
+            }
+
+            // holidays
+            let hData = [];
+            if (holidayRes.status === 'fulfilled' && holidayRes.value.success) {
+                hData = holidayRes.value.data || [];
+            }
+            // Parse any date format to a local midnight Date
+            const parseHolidayDate = (raw) => {
+                const parsed = new Date(raw);
+                if (!isNaN(parsed)) { parsed.setHours(0, 0, 0, 0); return parsed; }
+                const parts = String(raw).split('T')[0].split('-');
+                return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            };
+            const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+            const upcomingFromApi = hData.filter(h => parseHolidayDate(h.holiday_date) >= today0);
+            // If no upcoming holidays from API, use fallback
+            const finalData = upcomingFromApi.length ? upcomingFromApi : (() => {
+                const y = new Date().getFullYear();
+                return [
+                    { holiday_id: 1, holiday_name: 'Independence Day', holiday_date: `${y}-08-15` },
+                    { holiday_id: 2, holiday_name: 'Gandhi Jayanti',    holiday_date: `${y}-10-02` },
+                    { holiday_id: 3, holiday_name: 'Diwali',            holiday_date: `${y}-10-31` },
+                    { holiday_id: 4, holiday_name: 'Christmas',         holiday_date: `${y}-12-25` },
+                    { holiday_id: 5, holiday_name: 'New Year',          holiday_date: `${y + 1}-01-01` },
+                ].filter(h => parseHolidayDate(h.holiday_date) >= today0);
+            })();
+            setHolidays(
+                finalData
+                    .sort((a, b) => parseHolidayDate(a.holiday_date) - parseHolidayDate(b.holiday_date))
+                    .slice(0, 5)
+            );
+
+            // company policies - filter for employee visibility
+            if (policiesRes.status === 'fulfilled' && policiesRes.value.success) {
+                const employeePolicies = policiesRes.value.data?.policies || [];
+                console.log('Policies API response:', policiesRes.value); // DEBUG
+                console.log('Employee policies:', employeePolicies); // DEBUG
+                setCompanyPolicies(employeePolicies.slice(0, 5)); // Show top 5
+            } else {
+                console.log('Policies fetch failed:', policiesRes); // DEBUG
+            }
+        } catch (e) {
+            console.error('[Dashboard] loadEmployeeDashboard error:', e);
             setError('Failed to load dashboard data');
+            // Still show fallback holidays even on error
+            const y = new Date().getFullYear();
+            const today2 = new Date(); today2.setHours(0, 0, 0, 0);
+            setHolidays([
+                { holiday_id: 1, holiday_name: 'Independence Day', holiday_date: `${y}-08-15` },
+                { holiday_id: 2, holiday_name: 'Gandhi Jayanti',    holiday_date: `${y}-10-02` },
+                { holiday_id: 3, holiday_name: 'Diwali',            holiday_date: `${y}-10-31` },
+                { holiday_id: 4, holiday_name: 'Christmas',         holiday_date: `${y}-12-25` },
+                { holiday_id: 5, holiday_name: 'New Year',          holiday_date: `${y + 1}-01-01` },
+            ].filter(h => {
+                const parts = h.holiday_date.split('-');
+                return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])) >= today2;
+            }));
         } finally {
-            setDashboardLoading(false);
-            setIsLoadingData(false);
+            setEmpLoading(false);
         }
     };
 
-    // Show loading spinner based on current view
-    const shouldShowLoading = () => {
-        if (currentView === 'HR') {
-            return loading; // HR view uses loading state
-        } else {
-            return dashboardLoading; // Employee view uses dashboardLoading state
-        }
-    };
-
-    if (shouldShowLoading()) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // LOADING STATES
+    // ─────────────────────────────────────────────────────────────────────────
+    if ((user?.role === 'HR' && currentView === 'HR' && hrLoading) ||
+        (currentView === 'EMPLOYEE' && empLoading)) {
         return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
                 <CircularProgress />
             </Box>
         );
     }
 
-    // HR Dashboard - Show when user has HR role AND is in HR view
+    // ─────────────────────────────────────────────────────────────────────────
+    // HR DASHBOARD
+    // ─────────────────────────────────────────────────────────────────────────
     if (user?.role === 'HR' && currentView === 'HR') {
+        const trendColors = trend.map(d => d.percentage >= 80 ? '#4caf50' : d.percentage >= 60 ? '#ff9800' : '#f44336');
+
         return (
             <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-                {/* Header Section - Centered */}
-                <Box sx={{ mb: { xs: 2, sm: 3, md: 4 }, textAlign: 'center' }}>
-                    <Typography variant="h4" sx={{ 
-                        fontWeight: 700, 
-                        mb: 1, 
-                        fontSize: { xs: '1.5rem', sm: '1.75rem', md: '2.125rem' } 
-                    }}>
-                        HR Dashboard
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                        Welcome back! Here's an overview of your workspace
-                    </Typography>
+                {/* Header */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                    <Box>
+                        <Typography variant="h5" fontWeight={700}>HR Dashboard</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        </Typography>
+                    </Box>
+                    <Button size="small" startIcon={<RefreshIcon />} onClick={loadHRDashboard} disabled={hrLoading}>
+                        Refresh
+                    </Button>
                 </Box>
 
-                {/* Error Alert */}
-                {error && (
-                    <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
-                        {error}
-                    </Alert>
+                {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+                {/* ── Needs Attention ── */}
+                {alerts.length > 0 && (
+                    <Paper sx={{ p: 2, mb: 3, border: '1px solid', borderColor: 'warning.light', bgcolor: 'warning.50' }}>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <WarningIcon fontSize="small" color="warning" /> Needs Attention
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                            {alerts.map((alert, i) => {
+                                const meta = alertMeta(alert.severity);
+                                return (
+                                    <Chip
+                                        key={i}
+                                        icon={meta.icon}
+                                        label={alert.message}
+                                        color={meta.color}
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={() => navigate(alert.action_route)}
+                                        sx={{ cursor: 'pointer', fontWeight: 500 }}
+                                    />
+                                );
+                            })}
+                        </Box>
+                    </Paper>
                 )}
 
-                {/* Summary Cards */}
-                <Box sx={{ 
-                    display: 'flex', 
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    flexWrap: 'wrap',
-                    gap: 2,
-                    mb: 4 
-                }}>
-                    <Card sx={{ 
-                        flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', lg: '1 1 calc(25% - 12px)' },
-                        minWidth: 200
-                    }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        Total Employees
-                                    </Typography>
-                                    <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        {stats.totalEmployees}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        Active employees
-                                    </Typography>
-                                </Box>
-                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main', width: 48, height: 48 }}>
+                {/* ── Today Snapshot + Payroll Status ── */}
+                <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                    {/* Today Snapshot */}
+                    <Paper sx={{ flex: '1 1 300px', p: 3 }}>
+                        <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Today at a Glance
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                            <Box sx={{ textAlign: 'center' }}>
+                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main', mx: 'auto', mb: 0.5, width: 44, height: 44 }}>
                                     <PeopleIcon />
                                 </Avatar>
+                                <Typography variant="h5" fontWeight={700}>{stats.totalEmployees}</Typography>
+                                <Typography variant="caption" color="text.secondary">Total</Typography>
                             </Box>
-                        </CardContent>
-                    </Card>
-
-                    <Card sx={{ 
-                        flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', lg: '1 1 calc(25% - 12px)' },
-                        minWidth: 200
-                    }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        Present Today
-                                    </Typography>
-                                    <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        {stats.presentToday}
-                                    </Typography>
-                                    <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center' }}>
-                                        <TrendingUpIcon sx={{ fontSize: 14, mr: 0.5 }} />
-                                        {stats.attendancePercentage}% attendance
-                                    </Typography>
-                                </Box>
-                                <Avatar sx={{ bgcolor: 'success.light', color: 'success.main', width: 48, height: 48 }}>
+                            <Box sx={{ textAlign: 'center' }}>
+                                <Avatar sx={{ bgcolor: 'success.light', color: 'success.main', mx: 'auto', mb: 0.5, width: 44, height: 44 }}>
                                     <CheckCircleIcon />
                                 </Avatar>
+                                <Typography variant="h5" fontWeight={700} color="success.main">{stats.presentToday}</Typography>
+                                <Typography variant="caption" color="text.secondary">Present</Typography>
                             </Box>
-                        </CardContent>
-                    </Card>
-
-                    <Card sx={{ 
-                        flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', lg: '1 1 calc(25% - 12px)' },
-                        minWidth: 200
-                    }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        Pending Approvals
-                                    </Typography>
-                                    <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        {stats.pendingApprovals}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        Requires action
-                                    </Typography>
-                                </Box>
-                                <Avatar sx={{ bgcolor: 'warning.light', color: 'warning.main', width: 48, height: 48 }}>
+                            <Box sx={{ textAlign: 'center' }}>
+                                <Avatar sx={{ bgcolor: 'error.light', color: 'error.main', mx: 'auto', mb: 0.5, width: 44, height: 44 }}>
+                                    <DotIcon />
+                                </Avatar>
+                                <Typography variant="h5" fontWeight={700} color="error.main">{stats.absentToday}</Typography>
+                                <Typography variant="caption" color="text.secondary">Absent</Typography>
+                            </Box>
+                            <Box sx={{ textAlign: 'center' }}>
+                                <Avatar sx={{ bgcolor: 'warning.light', color: 'warning.main', mx: 'auto', mb: 0.5, width: 44, height: 44 }}>
+                                    <LeaveIcon />
+                                </Avatar>
+                                <Typography variant="h5" fontWeight={700} color="warning.main">{stats.onLeaveToday}</Typography>
+                                <Typography variant="caption" color="text.secondary">On Leave</Typography>
+                            </Box>
+                            <Box sx={{ textAlign: 'center' }}>
+                                <Avatar sx={{ bgcolor: 'info.light', color: 'info.main', mx: 'auto', mb: 0.5, width: 44, height: 44 }}>
                                     <PendingIcon />
                                 </Avatar>
+                                <Typography variant="h5" fontWeight={700} color="info.main">{stats.pendingApprovals}</Typography>
+                                <Typography variant="caption" color="text.secondary">Pending</Typography>
                             </Box>
-                        </CardContent>
-                    </Card>
+                        </Box>
+                        <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="caption" color="text.secondary">
+                                Attendance rate: <strong>{stats.attendancePercentage}%</strong>
+                            </Typography>
+                        </Box>
+                    </Paper>
 
-                    <Card sx={{ 
-                        flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', lg: '1 1 calc(25% - 12px)' },
-                        minWidth: 200
-                    }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        Payroll This Month
-                                    </Typography>
-                                    <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        ₹{stats.payrollAmount}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        On track
-                                    </Typography>
-                                </Box>
-                                <Avatar sx={{ bgcolor: 'info.light', color: 'info.main', width: 48, height: 48 }}>
-                                    <PayrollIcon />
-                                </Avatar>
-                            </Box>
-                        </CardContent>
-                    </Card>
+                    {/* Quick Actions */}
+                    <Paper sx={{ flex: '1 1 260px', p: 3 }}>
+                        <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Quick Actions
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Button variant="outlined" startIcon={<PersonAddIcon />} onClick={() => navigate('/employees/add')} fullWidth sx={{ justifyContent: 'flex-start' }}>
+                                Add Employee
+                            </Button>
+                            <Button variant="outlined" startIcon={<PayrollIcon />} onClick={() => navigate('/payroll')} fullWidth sx={{ justifyContent: 'flex-start' }}>
+                                Process Payroll
+                            </Button>
+                            <Button variant="outlined" startIcon={<LeaveIcon />} onClick={() => navigate('/leave')} fullWidth sx={{ justifyContent: 'flex-start' }}>
+                                Review Leaves {stats.pendingApprovals > 0 && `(${stats.pendingApprovals})`}
+                            </Button>
+                            <Button variant="outlined" startIcon={<UploadIcon />} onClick={() => navigate('/admin')} fullWidth sx={{ justifyContent: 'flex-start' }}>
+                                Bulk Upload
+                            </Button>
+                        </Box>
+                    </Paper>
                 </Box>
 
-                {/* Quick Actions */}
-                <Paper sx={{ p: 3, mb: 3 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
-                        Quick Actions
-                    </Typography>
-                    <Box sx={{ 
-                        display: 'flex', 
-                        flexDirection: { xs: 'column', sm: 'row' },
-                        flexWrap: 'wrap',
-                        gap: 2 
-                    }}>
-                        <Button
-                            variant="outlined"
-                            startIcon={<PersonAddIcon />}
-                            onClick={() => navigate('/employees/add')}
-                            sx={{
-                                flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                                py: 1.5,
-                                justifyContent: 'flex-start',
-                                borderColor: 'divider',
-                                color: 'text.primary',
-                                '&:hover': {
-                                    borderColor: 'primary.main',
-                                    bgcolor: 'action.hover',
-                                },
-                            }}
-                        >
-                            Add Employee
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            startIcon={<UploadIcon />}
-                            onClick={() => navigate('/admin')}
-                            sx={{
-                                flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                                py: 1.5,
-                                justifyContent: 'flex-start',
-                                borderColor: 'divider',
-                                color: 'text.primary',
-                                '&:hover': {
-                                    borderColor: 'primary.main',
-                                    bgcolor: 'action.hover',
-                                },
-                            }}
-                        >
-                            Bulk Upload
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            startIcon={<PayrollIcon />}
-                            onClick={() => navigate('/payroll')}
-                            sx={{
-                                flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                                py: 1.5,
-                                justifyContent: 'flex-start',
-                                borderColor: 'divider',
-                                color: 'text.primary',
-                                '&:hover': {
-                                    borderColor: 'primary.main',
-                                    bgcolor: 'action.hover',
-                                },
-                            }}
-                        >
-                            Process Payroll
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            startIcon={<AssessmentIcon />}
-                            onClick={() => navigate('/admin')}
-                            sx={{
-                                flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                                py: 1.5,
-                                justifyContent: 'flex-start',
-                                borderColor: 'divider',
-                                color: 'text.primary',
-                                '&:hover': {
-                                    borderColor: 'primary.main',
-                                    bgcolor: 'action.hover',
-                                },
-                            }}
-                        >
-                            Generate Reports
-                        </Button>
-                    </Box>
-                </Paper>
+                {/* ── Attendance Trend Chart ── */}
+                {trend.length > 0 && (
+                    <Paper sx={{ p: 3, mb: 3 }}>
+                        <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Attendance Trend — Last 7 Days
+                        </Typography>
+                        <ResponsiveContainer width="100%" height={200}>
+                            <BarChart data={trend} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                                <YAxis tick={{ fontSize: 12 }} />
+                                <Tooltip
+                                    formatter={(val, name) => [val, name === 'present' ? 'Present' : name]}
+                                    labelFormatter={(label, payload) => {
+                                        const d = payload?.[0]?.payload;
+                                        return d ? `${d.date} — ${d.percentage}%` : label;
+                                    }}
+                                />
+                                <Bar dataKey="present" radius={[4, 4, 0, 0]}>
+                                    {trend.map((_, i) => <Cell key={i} fill={trendColors[i]} />)}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </Paper>
+                )}
 
-                {/* Recent Activity */}
+                {/* ── Recent Activity ── */}
                 <Paper sx={{ p: 3 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+                    <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 1 }}>
                         Recent Activity
                     </Typography>
                     {recentActivities.length > 0 ? (
                         <List disablePadding>
-                            {recentActivities.map((activity, index) => {
-                                // Determine icon and color based on activity type
-                                const getActivityIcon = (type) => {
-                                    switch (type) {
-                                        case 'LEAVE_APPROVED':
-                                            return { icon: CheckCircleIcon, color: 'success' };
-                                        case 'LEAVE_REJECTED':
-                                            return { icon: PendingIcon, color: 'error' };
-                                        case 'EMPLOYEE_ADDED':
-                                            return { icon: PeopleIcon, color: 'primary' };
-                                        default:
-                                            return { icon: DescriptionIcon, color: 'info' };
-                                    }
+                            {recentActivities.map((activity, i) => {
+                                const iconMap = {
+                                    LEAVE_APPROVED: { icon: CheckCircleIcon, color: 'success' },
+                                    LEAVE_REJECTED: { icon: PendingIcon,     color: 'error' },
+                                    LEAVE_PENDING:  { icon: PendingIcon,     color: 'warning' },
+                                    EMPLOYEE_ADDED: { icon: PeopleIcon,      color: 'primary' },
                                 };
-
-                                const { icon: IconComponent, color } = getActivityIcon(activity.type);
-                                
-                                // Format time display
-                                const getTimeDisplay = (date, time) => {
-                                    const activityDate = new Date(date);
-                                    const today = new Date();
-                                    const diffDays = Math.floor((today - activityDate) / (1000 * 60 * 60 * 24));
-                                    
-                                    if (diffDays === 0) {
-                                        return `${time}`;
-                                    } else if (diffDays === 1) {
-                                        return '1 day ago';
-                                    } else {
-                                        return `${diffDays} days ago`;
-                                    }
-                                };
-
+                                const { icon: Icon, color } = iconMap[activity.type] || { icon: DescriptionIcon, color: 'info' };
+                                const actDate = new Date(activity.date);
+                                const diffDays = Math.floor((new Date() - actDate) / 86400000);
+                                const timeLabel = diffDays === 0 ? activity.time : diffDays === 1 ? '1 day ago' : `${diffDays} days ago`;
                                 return (
-                                    <Box key={index}>
-                                        <ListItem sx={{ px: 0, py: 2 }}>
+                                    <Box key={i}>
+                                        <ListItem sx={{ px: 0, py: 1.5 }}>
                                             <ListItemIcon sx={{ minWidth: 40 }}>
-                                                <Avatar sx={{ 
-                                                    bgcolor: `${color}.light`, 
-                                                    color: `${color}.main`, 
-                                                    width: 32, 
-                                                    height: 32 
-                                                }}>
-                                                    <IconComponent sx={{ fontSize: 18 }} />
+                                                <Avatar sx={{ bgcolor: `${color}.light`, color: `${color}.main`, width: 32, height: 32 }}>
+                                                    <Icon sx={{ fontSize: 18 }} />
                                                 </Avatar>
                                             </ListItemIcon>
                                             <ListItemText
-                                                primary={
-                                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                        {activity.description}
-                                                    </Typography>
-                                                }
+                                                primary={<Typography variant="body2" fontWeight={500}>{activity.description}</Typography>}
                                                 secondary={
                                                     <Typography variant="caption" color="text.secondary">
                                                         {activity.employee_name}
+                                                        {activity.meta ? ` · ${activity.meta}` : ''}
                                                     </Typography>
                                                 }
                                             />
-                                            <Typography variant="caption" color="text.secondary">
-                                                {getTimeDisplay(activity.date, activity.time)}
-                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">{timeLabel}</Typography>
                                         </ListItem>
-                                        {index < recentActivities.length - 1 && <Divider />}
+                                        {i < recentActivities.length - 1 && <Divider />}
                                     </Box>
                                 );
                             })}
                         </List>
                     ) : (
-                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                            No recent activities found
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                            No recent activities
                         </Typography>
                     )}
                 </Paper>
@@ -616,208 +461,89 @@ const Dashboard = () => {
         );
     }
 
-    // Manager Dashboard - Show when user has MANAGER role AND is in Manager view
+    // ─────────────────────────────────────────────────────────────────────────
+    // MANAGER DASHBOARD (kept as-is for now — Phase 3)
+    // ─────────────────────────────────────────────────────────────────────────
     if (user?.role === 'MANAGER' && currentView === 'MANAGER') {
         return (
             <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-                {/* Header Section - Centered */}
-                <Box sx={{ mb: { xs: 2, sm: 3, md: 4 }, textAlign: 'center' }}>
-                    <Typography variant="h4" sx={{ 
-                        fontWeight: 700, 
-                        mb: 1, 
-                        fontSize: { xs: '1.5rem', sm: '1.75rem', md: '2.125rem' } 
-                    }}>
-                        Manager Dashboard
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                        Welcome back! Here's an overview of your team
-                    </Typography>
+                <Box sx={{ mb: 3, textAlign: 'center' }}>
+                    <Typography variant="h5" fontWeight={700}>Manager Dashboard</Typography>
+                    <Typography variant="body2" color="text.secondary">Welcome back! Here's your team overview</Typography>
                 </Box>
-
-                {/* Summary Cards */}
-                <Box sx={{ 
-                    display: 'flex', 
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    flexWrap: 'wrap',
-                    gap: 2,
-                    mb: 4 
-                }}>
-                    <Card sx={{ 
-                        flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', lg: '1 1 calc(33.333% - 11px)' },
-                        minWidth: 200
-                    }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        Team Members
-                                    </Typography>
-                                    <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        24
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        Active members
-                                    </Typography>
-                                </Box>
-                                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main', width: 48, height: 48 }}>
-                                    <PeopleIcon />
-                                </Avatar>
-                            </Box>
-                        </CardContent>
-                    </Card>
-
-                    <Card sx={{ 
-                        flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', lg: '1 1 calc(33.333% - 11px)' },
-                        minWidth: 200
-                    }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        Present Today
-                                    </Typography>
-                                    <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        22
-                                    </Typography>
-                                    <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center' }}>
-                                        <TrendingUpIcon sx={{ fontSize: 14, mr: 0.5 }} />
-                                        91.7% attendance
-                                    </Typography>
-                                </Box>
-                                <Avatar sx={{ bgcolor: 'success.light', color: 'success.main', width: 48, height: 48 }}>
-                                    <CheckCircleIcon />
-                                </Avatar>
-                            </Box>
-                        </CardContent>
-                    </Card>
-
-                    <Card sx={{ 
-                        flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', lg: '1 1 calc(33.333% - 11px)' },
-                        minWidth: 200
-                    }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <Box>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                        Pending Approvals
-                                    </Typography>
-                                    <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        5
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                        Requires action
-                                    </Typography>
-                                </Box>
-                                <Avatar sx={{ bgcolor: 'warning.light', color: 'warning.main', width: 48, height: 48 }}>
-                                    <PendingIcon />
-                                </Avatar>
-                            </Box>
-                        </CardContent>
-                    </Card>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+                    {[
+                        { label: 'Team Members', value: 24, color: 'primary' },
+                        { label: 'Present Today', value: 22, color: 'success' },
+                        { label: 'Pending Approvals', value: 5, color: 'warning' },
+                    ].map(({ label, value, color }) => (
+                        <Card key={label} sx={{ flex: '1 1 200px' }}>
+                            <CardContent sx={{ p: 3 }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{label}</Typography>
+                                <Typography variant="h3" fontWeight={700}>{value}</Typography>
+                            </CardContent>
+                        </Card>
+                    ))}
                 </Box>
-
-                {/* Pending Leave Requests */}
                 <Paper sx={{ p: 3 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+                    <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 1 }}>
                         Pending Leave Requests
                     </Typography>
-                    <List disablePadding>
-                        {[
-                            { name: 'Alice Johnson', type: 'Sick Leave', days: '2 days', date: 'Dec 28-29' },
-                            { name: 'Bob Williams', type: 'Vacation', days: '5 days', date: 'Jan 5-9' },
-                            { name: 'Carol Martinez', type: 'Personal', days: '1 day', date: 'Dec 30' },
-                        ].map((request, index) => (
-                            <Box key={index}>
-                                <ListItem sx={{ px: 0, py: 2 }}>
-                                    <ListItemIcon sx={{ minWidth: 40 }}>
-                                        <Avatar sx={{ bgcolor: 'primary.light', width: 32, height: 32, fontSize: '0.875rem' }}>
-                                            {request.name.charAt(0)}
-                                        </Avatar>
-                                    </ListItemIcon>
-                                    <ListItemText
-                                        primary={
-                                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                {request.name} - {request.type}
-                                            </Typography>
-                                        }
-                                        secondary={
-                                            <Typography variant="caption" color="text.secondary">
-                                                {request.days} ({request.date})
-                                            </Typography>
-                                        }
-                                    />
-                                    <Box sx={{ display: 'flex', gap: 1 }}>
-                                        <Button size="small" variant="contained" color="success">
-                                            Approve
-                                        </Button>
-                                        <Button size="small" variant="outlined" color="error">
-                                            Reject
-                                        </Button>
-                                    </Box>
-                                </ListItem>
-                                {index < 2 && <Divider />}
-                            </Box>
-                        ))}
-                    </List>
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                        Manager dashboard real data coming in Phase 3
+                    </Typography>
                 </Paper>
             </Box>
         );
     }
 
-    // Employee Dashboard
+    // ─────────────────────────────────────────────────────────────────────────
+    // EMPLOYEE DASHBOARD
+    // ─────────────────────────────────────────────────────────────────────────
+    // Get display name from profileInfo (first_name + last_name) or fallback to user.name
+    const getDisplayName = () => {
+        if (profileInfo?.first_name && profileInfo?.last_name) {
+            return `${profileInfo.first_name} ${profileInfo.last_name}`;
+        }
+        if (profileInfo?.full_name) {
+            return profileInfo.full_name;
+        }
+        // Fallback to user.name and try to format it
+        if (user?.name) {
+            // If it's a username like "aabhasnegi04", just return first word capitalized
+            const name = user.name.replace(/\d+/g, ''); // Remove numbers
+            return name.charAt(0).toUpperCase() + name.slice(1);
+        }
+        return 'there';
+    };
+
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-            {/* Header Section - Centered */}
-            <Box sx={{ mb: { xs: 2, sm: 3, md: 4 }, textAlign: 'center' }}>
-                <Typography variant="h4" sx={{ 
-                    fontWeight: 700, 
-                    mb: 1, 
-                    fontSize: { xs: '1.5rem', sm: '1.75rem', md: '2.125rem' } 
-                }}>
-                    Employee Dashboard
+            {/* Greeting */}
+            <Box sx={{ mb: 3 }}>
+                <Typography variant="h5" fontWeight={700}>
+                    {getGreeting()}, {getDisplayName()} 👋
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                    Welcome back, {user?.name}! Here's your overview
+                    {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                 </Typography>
             </Box>
 
-            {/* Error Alert */}
-            {error && (
-                <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
-                    {error}
-                </Alert>
-            )}
-
-            {/* Inactive Employee Alert */}
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
             <InactiveEmployeeAlert />
 
             {/* Summary Cards */}
-            <Box sx={{ 
-                display: 'grid',
-                gridTemplateColumns: { 
-                    xs: 'repeat(2, 1fr)',  // 2x2 grid on mobile
-                    sm: 'repeat(2, 1fr)',  // 2x2 grid on small tablets
-                    md: 'repeat(4, 1fr)'   // 1x4 grid on desktop
-                },
-                gap: 2,
-                mb: 4 
-            }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', md: 'repeat(4,1fr)' }, gap: 2, mb: 3 }}>
                 <Card>
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <Box>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
-                                    Days Present
-                                </Typography>
-                                <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
-                                    {employeeStats.daysPresent}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
-                                    This month
-                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Days Present</Typography>
+                                <Typography variant="h3" fontWeight={700} sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>{employeeStats.daysPresent}</Typography>
+                                <Typography variant="caption" color="text.secondary">This month</Typography>
                             </Box>
                             <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main', width: { xs: 36, sm: 48 }, height: { xs: 36, sm: 48 } }}>
-                                <ScheduleIcon sx={{ fontSize: { xs: 18, sm: 24 } }} />
+                                <ScheduleIcon />
                             </Avatar>
                         </Box>
                     </CardContent>
@@ -827,23 +553,19 @@ const Dashboard = () => {
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <Box>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
-                                    Leave Balance
-                                </Typography>
-                                <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
-                                    {employeeStats.leaveBalance}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
-                                    Regular leave days
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Leave Balance</Typography>
+                                <Typography variant="h3" fontWeight={700} sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>{employeeStats.leaveBalance}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    Days remaining
                                     {specialLeaves.length > 0 && (
                                         <Box component="span" sx={{ display: 'block', mt: 0.5 }}>
-                                            + {specialLeaves.map(leave => `${leave.remaining} ${leave.name.replace(' Leave', '')}`).join(', ')}
+                                            + {specialLeaves.map(l => `${l.remaining} ${l.name.replace(' Leave', '')}`).join(', ')}
                                         </Box>
                                     )}
                                 </Typography>
                             </Box>
                             <Avatar sx={{ bgcolor: 'success.light', color: 'success.main', width: { xs: 36, sm: 48 }, height: { xs: 36, sm: 48 } }}>
-                                <LeaveIcon sx={{ fontSize: { xs: 18, sm: 24 } }} />
+                                <LeaveIcon />
                             </Avatar>
                         </Box>
                     </CardContent>
@@ -853,19 +575,15 @@ const Dashboard = () => {
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <Box>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
-                                    Attendance Rate
-                                </Typography>
-                                <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
-                                    {employeeStats.attendanceRate}%
-                                </Typography>
-                                <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
-                                    <TrendingUpIcon sx={{ fontSize: { xs: 12, sm: 14 }, mr: 0.5 }} />
-                                    {employeeStats.attendanceRate >= 90 ? 'Excellent' : employeeStats.attendanceRate >= 75 ? 'Good' : 'Needs Improvement'}
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>This Month</Typography>
+                                <Typography variant="h3" fontWeight={700} sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>{employeeStats.attendanceRate}%</Typography>
+                                <Typography variant="caption" color={employeeStats.attendanceRate >= 90 ? 'success.main' : 'warning.main'} sx={{ display: 'flex', alignItems: 'center' }}>
+                                    <TrendingUpIcon sx={{ fontSize: 12, mr: 0.5 }} />
+                                    {employeeStats.daysPresent} days present
                                 </Typography>
                             </Box>
                             <Avatar sx={{ bgcolor: 'info.light', color: 'info.main', width: { xs: 36, sm: 48 }, height: { xs: 36, sm: 48 } }}>
-                                <TrendingUpIcon sx={{ fontSize: { xs: 18, sm: 24 } }} />
+                                <TrendingUpIcon />
                             </Avatar>
                         </Box>
                     </CardContent>
@@ -874,19 +592,27 @@ const Dashboard = () => {
                 <Card>
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <Box>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
-                                    Today's Status
-                                </Typography>
-                                <Typography variant="h3" sx={{ fontWeight: 700, mb: 0.5, fontSize: { xs: '1rem', sm: '1.5rem' } }}>
-                                    {employeeStats.todayStatus}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
-                                    {employeeStats.checkInTime ? `Checked in at ${employeeStats.checkInTime}` : 'Not checked in today'}
-                                </Typography>
+                            <Box sx={{ flex: 1 }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Payslip</Typography>
+                                {payslipStatus.available ? (
+                                    <>
+                                        <Typography variant="body1" fontWeight={700} sx={{ mb: 0.5 }}>Ready</Typography>
+                                        <Typography variant="caption" color="success.main">{payslipStatus.periodName}</Typography>
+                                        <Box sx={{ mt: 1 }}>
+                                            <Button size="small" variant="outlined" onClick={() => navigate('/payroll/payslips')} sx={{ fontSize: '0.7rem', py: 0.25 }}>
+                                                View
+                                            </Button>
+                                        </Box>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Typography variant="body1" fontWeight={700} sx={{ mb: 0.5 }}>Not yet</Typography>
+                                        <Typography variant="caption" color="text.secondary">No payslip available</Typography>
+                                    </>
+                                )}
                             </Box>
-                            <Avatar sx={{ bgcolor: 'success.light', color: 'success.main', width: { xs: 36, sm: 48 }, height: { xs: 36, sm: 48 } }}>
-                                <CheckCircleIcon sx={{ fontSize: { xs: 18, sm: 24 } }} />
+                            <Avatar sx={{ bgcolor: payslipStatus.available ? 'success.light' : 'grey.100', color: payslipStatus.available ? 'success.main' : 'grey.500', width: { xs: 36, sm: 48 }, height: { xs: 36, sm: 48 } }}>
+                                <PayrollIcon />
                             </Avatar>
                         </Box>
                     </CardContent>
@@ -895,134 +621,61 @@ const Dashboard = () => {
 
             {/* Quick Actions */}
             <Paper sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+                <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 1 }}>
                     Quick Actions
                 </Typography>
-                <Box sx={{ 
-                    display: 'flex', 
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    flexWrap: 'wrap',
-                    gap: 2 
-                }}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<AttendanceIcon />}
-                        onClick={() => navigate('/attendance')}
-                        sx={{
-                            flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                            py: 1.5,
-                            justifyContent: 'flex-start',
-                            borderColor: 'divider',
-                            color: 'text.primary',
-                            '&:hover': {
-                                borderColor: 'primary.main',
-                                bgcolor: 'action.hover',
-                            },
-                        }}
-                    >
-                        Check In/Out
-                    </Button>
-                    <Button
-                        variant="outlined"
-                        startIcon={<LeaveIcon />}
-                        onClick={() => navigate('/leave')}
-                        sx={{
-                            flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                            py: 1.5,
-                            justifyContent: 'flex-start',
-                            borderColor: 'divider',
-                            color: 'text.primary',
-                            '&:hover': {
-                                borderColor: 'primary.main',
-                                bgcolor: 'action.hover',
-                            },
-                        }}
-                    >
-                        Apply for Leave
-                    </Button>
-                    <Button
-                        variant="outlined"
-                        startIcon={<PayrollIcon />}
-                        onClick={() => navigate('/payroll/payslips')}
-                        sx={{
-                            flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                            py: 1.5,
-                            justifyContent: 'flex-start',
-                            borderColor: 'divider',
-                            color: 'text.primary',
-                            '&:hover': {
-                                borderColor: 'primary.main',
-                                bgcolor: 'action.hover',
-                            },
-                        }}
-                    >
-                        View Payslip
-                    </Button>
-                    <Button
-                        variant="outlined"
-                        startIcon={<PeopleIcon />}
-                        onClick={() => navigate('/employees/profile')}
-                        sx={{
-                            flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' },
-                            py: 1.5,
-                            justifyContent: 'flex-start',
-                            borderColor: 'divider',
-                            color: 'text.primary',
-                            '&:hover': {
-                                borderColor: 'primary.main',
-                                bgcolor: 'action.hover',
-                            },
-                        }}
-                    >
-                        Update Profile
-                    </Button>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                    {[
+                        { label: 'Check In/Out',    icon: <AttendanceIcon />, route: '/attendance' },
+                        { label: 'Apply for Leave', icon: <LeaveIcon />,      route: '/leave' },
+                        { label: 'View Payslip',    icon: <PayrollIcon />,    route: '/payroll/payslips' },
+                        { label: 'Update Profile',  icon: <PeopleIcon />,     route: '/employees/profile' },
+                    ].map(({ label, icon, route }) => (
+                        <Button
+                            key={label}
+                            variant="outlined"
+                            startIcon={icon}
+                            onClick={() => navigate(route)}
+                            sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 8px)', md: '1 1 calc(25% - 12px)' }, py: 1.5, justifyContent: 'flex-start', borderColor: 'divider', color: 'text.primary', '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' } }}
+                        >
+                            {label}
+                        </Button>
+                    ))}
                 </Box>
             </Paper>
 
             {/* Upcoming Holidays */}
-            <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+            <Paper sx={{ p: 3, mb: 3 }}>
+                <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 2, textTransform: 'uppercase', letterSpacing: 1 }}>
                     Upcoming Holidays
                 </Typography>
-                {dashboardLoading ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-                        <CircularProgress size={24} />
-                    </Box>
+                {empLoading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
                 ) : holidays.length > 0 ? (
                     <List disablePadding>
-                        {holidays.map((holiday, index) => {
-                            const holidayDate = new Date(holiday.holiday_date);
-                            const today = new Date();
-                            const daysUntil = Math.ceil((holidayDate - today) / (1000 * 60 * 60 * 24));
-                            
+                        {holidays.map((holiday, i) => {
+                            const hDate = new Date(holiday.holiday_date);
+                            hDate.setHours(0, 0, 0, 0);
+                            const today = new Date(); today.setHours(0, 0, 0, 0);
+                            const daysUntil = Math.ceil((hDate - today) / 86400000);
                             return (
-                                <Box key={holiday.holiday_id || index}>
-                                    <ListItem sx={{ px: 0, py: 2 }}>
+                                <Box key={holiday.holiday_id || i}>
+                                    <ListItem sx={{ px: 0, py: 1.5 }}>
                                         <ListItemIcon sx={{ minWidth: 40 }}>
                                             <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.main', width: 32, height: 32 }}>
                                                 <ScheduleIcon sx={{ fontSize: 18 }} />
                                             </Avatar>
                                         </ListItemIcon>
                                         <ListItemText
-                                            primary={
-                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                    {holiday.holiday_name}
-                                                </Typography>
-                                            }
+                                            primary={<Typography variant="body2" fontWeight={500}>{holiday.holiday_name}</Typography>}
                                             secondary={
-                                                <Box>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        {holidayDate.toLocaleDateString('en-US', {
-                                                            year: 'numeric',
-                                                            month: 'long',
-                                                            day: 'numeric'
-                                                        })}
+                                                <Box component="span">
+                                                    <Typography variant="caption" color="text.secondary" component="span">
+                                                        {hDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}
                                                     </Typography>
                                                     {daysUntil >= 0 && (
-                                                        <Typography variant="caption" color="primary.main" sx={{ display: 'block', fontWeight: 500 }}>
-                                                            {daysUntil === 0 ? 'Today!' : 
-                                                             daysUntil === 1 ? 'Tomorrow' : 
-                                                             `In ${daysUntil} days`}
+                                                        <Typography variant="caption" color="primary.main" fontWeight={500} sx={{ display: 'block' }}>
+                                                            {daysUntil === 0 ? 'Today!' : daysUntil === 1 ? 'Tomorrow' : `In ${daysUntil} days`}
                                                         </Typography>
                                                     )}
                                                 </Box>
@@ -1030,17 +683,59 @@ const Dashboard = () => {
                                             secondaryTypographyProps={{ component: 'div' }}
                                         />
                                     </ListItem>
-                                    {index < holidays.length - 1 && <Divider />}
+                                    {i < holidays.length - 1 && <Divider />}
                                 </Box>
                             );
                         })}
                     </List>
                 ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                        No upcoming holidays found
-                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>No upcoming holidays</Typography>
                 )}
             </Paper>
+
+            {/* Company Policies */}
+            {companyPolicies.length > 0 && (
+                <Paper sx={{ p: 3 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Company Policies
+                        </Typography>
+                        <Button size="small" onClick={() => navigate('/policies')} sx={{ textTransform: 'none' }}>
+                            View All
+                        </Button>
+                    </Box>
+                    <List disablePadding>
+                        {companyPolicies.map((policy, i) => (
+                            <Box key={policy.policy_id}>
+                                <ListItem sx={{ px: 0, py: 1.5 }}>
+                                    <ListItemIcon sx={{ minWidth: 40 }}>
+                                        <Avatar sx={{ bgcolor: 'info.light', color: 'info.main', width: 32, height: 32 }}>
+                                            <DescriptionIcon sx={{ fontSize: 18 }} />
+                                        </Avatar>
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={<Typography variant="body2" fontWeight={500}>{policy.policy_title}</Typography>}
+                                        secondary={
+                                            <Box component="span">
+                                                <Chip 
+                                                    label={policy.category} 
+                                                    size="small" 
+                                                    sx={{ height: 18, fontSize: '0.65rem', mr: 0.5 }} 
+                                                />
+                                                <Typography variant="caption" color="text.secondary" component="span">
+                                                    {policy.description?.substring(0, 60)}{policy.description?.length > 60 ? '...' : ''}
+                                                </Typography>
+                                            </Box>
+                                        }
+                                        secondaryTypographyProps={{ component: 'div' }}
+                                    />
+                                </ListItem>
+                                {i < companyPolicies.length - 1 && <Divider />}
+                            </Box>
+                        ))}
+                    </List>
+                </Paper>
+            )}
         </Box>
     );
 };

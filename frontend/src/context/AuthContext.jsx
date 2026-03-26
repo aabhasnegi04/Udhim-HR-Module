@@ -6,9 +6,9 @@ const AuthContext = createContext(null);
 
 // Role-based permissions configuration
 const ROLE_PERMISSIONS = {
-    HR: ['dashboard', 'employees', 'org-chart', 'attendance', 'leave', 'payroll', 'offboarding', 'admin', 'setup'],
-    MANAGER: ['dashboard', 'attendance', 'leave', 'offboarding', 'setup'],
-    EMPLOYEE: ['dashboard', 'attendance', 'leave', 'offboarding', 'setup'],
+    HR: ['dashboard', 'employees', 'org-chart', 'attendance', 'leave', 'payroll', 'offboarding', 'admin', 'setup', 'documents', 'notifications'],
+    MANAGER: ['dashboard', 'attendance', 'leave', 'offboarding', 'setup', 'documents', 'notifications'],
+    EMPLOYEE: ['dashboard', 'attendance', 'leave', 'payroll', 'offboarding', 'setup', 'documents', 'notifications'],
 };
 
 // Session timeout: 15 minutes in milliseconds
@@ -154,10 +154,10 @@ export const AuthProvider = ({ children }) => {
         initializeAuth();
     }, []);
 
-    const login = async (email, password, role) => {
+    const login = async (email, password) => {
         try {
             setLoading(true);
-            const result = await authService.login(email, password, role);
+            const result = await authService.login(email, password);
             
             if (result.success) {
                 // Check if password change is required BEFORE setting user

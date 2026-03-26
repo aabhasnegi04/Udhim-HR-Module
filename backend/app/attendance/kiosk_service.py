@@ -4,7 +4,7 @@ Handles kiosk-specific operations and attendance marking
 """
 
 from flask import current_app
-from app.database.executor import StoredProcedureExecutor
+from app.database.multi_tenant_executor import MultiTenantExecutor
 from app.attendance.face_recognition_service import FaceRecognitionService
 from datetime import datetime, date
 
@@ -24,7 +24,7 @@ class KioskService:
                 'kiosk_pin': pin  # In production, hash this before sending
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_verify_kiosk_pin', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_verify_kiosk_pin', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -64,7 +64,7 @@ class KioskService:
         """Get kiosk configuration"""
         try:
             parameters = {'kiosk_id': kiosk_id}
-            result = StoredProcedureExecutor.execute_procedure('proc_get_kiosk_settings', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_kiosk_settings', parameters)
             
             if result["success"] and result["data"]:
                 return {
@@ -95,7 +95,7 @@ class KioskService:
             if log_date:
                 parameters['log_date'] = log_date
             
-            result = StoredProcedureExecutor.execute_procedure('proc_get_kiosk_today_logs', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_get_kiosk_today_logs', parameters)
             
             if result["success"]:
                 return {
@@ -166,7 +166,7 @@ class KioskService:
                 'log_time': log_time
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_mark_kiosk_attendance', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_mark_kiosk_attendance', parameters)
             
             # Debug logging
             current_app.logger.info(f"Stored procedure result: {result}")
@@ -235,7 +235,7 @@ class KioskService:
     def list_all_kiosks():
         """List all kiosks (HR only)"""
         try:
-            result = StoredProcedureExecutor.execute_procedure('proc_list_all_kiosks')
+            result = MultiTenantExecutor.execute_procedure('proc_list_all_kiosks')
             
             if result["success"]:
                 return {
@@ -268,7 +268,7 @@ class KioskService:
                 'kiosk_pin': kiosk_pin  # In production, hash this
             }
             
-            result = StoredProcedureExecutor.execute_procedure('proc_create_kiosk', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_create_kiosk', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]
@@ -311,7 +311,7 @@ class KioskService:
             if kiosk_pin:
                 parameters['kiosk_pin'] = kiosk_pin  # In production, hash this
             
-            result = StoredProcedureExecutor.execute_procedure('proc_update_kiosk_settings', parameters)
+            result = MultiTenantExecutor.execute_procedure('proc_update_kiosk_settings', parameters)
             
             if result["success"] and result["data"]:
                 proc_result = result["data"][0]

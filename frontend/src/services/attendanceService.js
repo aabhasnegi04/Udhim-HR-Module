@@ -318,7 +318,9 @@ class AttendanceService {
   // BULK UPLOAD
   async bulkUploadAttendance(file) {
     try {
-      const token = localStorage.getItem('hrms_token');
+      const token = sessionStorage.getItem('hrms_token');
+      const companyCode = import.meta.env.VITE_COMPANY_CODE;
+      const currentView = localStorage.getItem('preferred_view') || 'HR';
       
       if (!token) {
         throw new Error('No authentication token found. Please log in again.');
@@ -327,13 +329,19 @@ class AttendanceService {
       const formData = new FormData();
       formData.append('file', file);
 
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'X-Current-View': currentView
+      };
+      
+      if (companyCode) {
+        headers['X-Company-Code'] = companyCode;
+      }
+
       // Use fetch directly for file upload
-      const response = await fetch('http://localhost:5000/attendance/bulk-upload', {
+      const response = await fetch(`${apiService.baseURL}/attendance/bulk-upload`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-          // Don't set Content-Type - let browser set it with boundary for FormData
-        },
+        headers,
         body: formData
       });
 
@@ -360,20 +368,27 @@ class AttendanceService {
 
   async downloadBulkUploadTemplate() {
     try {
-      // Get the token for authorization (stored as 'hrms_token')
-      const token = localStorage.getItem('hrms_token');
+      const token = sessionStorage.getItem('hrms_token');
+      const companyCode = import.meta.env.VITE_COMPANY_CODE;
+      const currentView = localStorage.getItem('preferred_view') || 'HR';
       
       if (!token) {
         throw new Error('No authentication token found. Please log in again.');
       }
       
-      // Use fetch directly for file download
-      const response = await fetch('http://localhost:5000/attendance/bulk-upload/template', {
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'X-Current-View': currentView
+      };
+      
+      if (companyCode) {
+        headers['X-Company-Code'] = companyCode;
+      }
+      
+      // Use fetch directly for file download — use the rich admin template (dropdowns, validations)
+      const response = await fetch(`${apiService.baseURL}/admin/bulk-upload/template/attendance`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers
       });
 
       if (!response.ok) {
@@ -388,7 +403,7 @@ class AttendanceService {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'attendance_upload_template.xlsx');
+      link.setAttribute('download', 'attendance_template.xlsx');
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -501,12 +516,12 @@ export const listKiosks = async () => {
  */
 export const createKiosk = async (kioskName, kioskLocation, kioskPin) => {
   try {
-    const response = await api.post('/attendance/kiosk/create', {
+    const response = await apiService.post('/attendance/kiosk/create', {
       kiosk_name: kioskName,
       kiosk_location: kioskLocation,
       kiosk_pin: kioskPin
     });
-    return response.data;
+    return response;
   } catch (error) {
     console.error('Create kiosk error:', error);
     throw error;

@@ -9,37 +9,22 @@ import {
 } from '@mui/material';
 import {
     Dashboard as DashboardIcon,
-    Storage as MasterDataIcon,
-    Event as HolidayIcon,
     Upload as BulkUploadIcon,
-    Description as TemplateIcon,
-    Policy as PolicyIcon,
-    AccountBalance as SalaryIcon,
-    Assessment as ReportIcon
+    Assessment as ReportIcon,
 } from '@mui/icons-material';
 
 // Import admin components
 import AdminDashboard from './Admin/AdminDashboard';
-import MasterData from './Admin/MasterData';
-import HolidayCalendar from './Admin/HolidayCalendar';
 import BulkUploads from './Admin/BulkUploads';
-import LetterTemplates from './Admin/LetterTemplates';
-import CompanyPolicies from './Admin/CompanyPolicies';
-import SalaryStructures from './Admin/SalaryStructures';
 import SystemReports from './Admin/SystemReports';
 
 const Admin = () => {
     const [activeTab, setActiveTab] = useState(0);
 
     const adminTabs = [
-        { label: 'Overview', icon: <DashboardIcon />, component: AdminDashboard },
-        { label: 'Master Data', icon: <MasterDataIcon />, component: MasterData },
-        { label: 'Holiday Calendar', icon: <HolidayIcon />, component: HolidayCalendar },
-        { label: 'Bulk Uploads', icon: <BulkUploadIcon />, component: BulkUploads },
-        { label: 'Letter Templates', icon: <TemplateIcon />, component: LetterTemplates },
-        { label: 'Company Policies', icon: <PolicyIcon />, component: CompanyPolicies },
-        { label: 'Salary Structures', icon: <SalaryIcon />, component: SalaryStructures },
-        { label: 'System Reports', icon: <ReportIcon />, component: SystemReports }
+        { label: 'Overview',      icon: <DashboardIcon />,  component: AdminDashboard },
+        { label: 'Bulk Uploads',  icon: <BulkUploadIcon />, component: BulkUploads },
+        { label: 'System Reports',icon: <ReportIcon />,     component: SystemReports },
     ];
 
     const handleTabChange = (event, newValue) => {
@@ -60,7 +45,7 @@ const Admin = () => {
                     Admin Control Center
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                    Single source of truth for all system configuration and master data
+                    Manage bulk operations and generate system reports
                 </Typography>
             </Box>
 

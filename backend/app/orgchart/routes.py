@@ -1,13 +1,15 @@
 from flask import Blueprint
 from app.orgchart.service import OrgChartService
-from app.middleware.jwt_required import jwt_required
+from app.middleware.multi_tenant_jwt import multi_tenant_jwt_required
+from app.middleware.company_context import company_required
 from app.utils.response import success_response, error_response
 
 orgchart_bp = Blueprint('orgchart', __name__)
 
 
 @orgchart_bp.route('/hierarchy', methods=['GET'])
-@jwt_required
+@company_required
+@multi_tenant_jwt_required
 def get_organization_hierarchy():
     """Get complete organization hierarchy"""
     try:
@@ -26,7 +28,8 @@ def get_organization_hierarchy():
 
 
 @orgchart_bp.route('/search', methods=['GET'])
-@jwt_required
+@company_required
+@multi_tenant_jwt_required
 def search_employees():
     """Search employees in organization"""
     try:

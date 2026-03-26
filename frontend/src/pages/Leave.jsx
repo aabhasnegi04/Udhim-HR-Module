@@ -3,6 +3,7 @@ import { Box, Typography, Tabs, Tab, Paper, Alert } from '@mui/material';
 import { Warning as WarningIcon } from '@mui/icons-material';
 import { AuthContext } from '../context/AuthContext';
 import { useProfileSwitching } from '../context/ProfileSwitchingContext';
+import { useLocation } from 'react-router-dom';
 
 // Import Leave components
 import LeaveDashboard from './Leave/LeaveDashboard';
@@ -16,7 +17,12 @@ import LeaveManagement from './Leave/LeaveManagement';
 const Leave = () => {
     const { user, isEmployeeActive } = useContext(AuthContext);
     const { currentView } = useProfileSwitching();
-    const [activeTab, setActiveTab] = useState(0);
+    const location = useLocation();
+    const [activeTab, setActiveTab] = useState(() => {
+        const params = new URLSearchParams(location.search);
+        const t = parseInt(params.get('tab'), 10);
+        return isNaN(t) ? 0 : t;
+    });
 
     // Define tabs based on current view (not user role)
     const getTabsForRole = () => {

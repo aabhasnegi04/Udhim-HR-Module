@@ -1,308 +1,129 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-    Box,
-    Typography,
-    Paper,
-    Card,
-    CardContent,
-    Button,
-    TextField,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Chip,
-    Avatar,
-    IconButton,
-    Stack,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Stepper,
-    Step,
-    StepLabel,
-    StepContent,
-    Checkbox,
-    FormControlLabel,
-    LinearProgress,
-    Divider,
-    Alert
+    Box, Typography, Paper, Card, CardContent, Button, Table, TableBody,
+    TableCell, TableContainer, TableHead, TableRow, Chip, Avatar, IconButton,
+    Stack, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress,
+    Alert, CircularProgress, TextField, FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
-import {
-    CheckCircle as CheckIcon,
-    Cancel as CancelIcon,
-    Pending as PendingIcon,
-    Visibility as ViewIcon,
-    Edit as EditIcon,
-    Timeline as TimelineIcon,
-    Refresh as RefreshIcon
-} from '@mui/icons-material';
+import { CheckCircle as CheckIcon, Cancel as CancelIcon, Pending as PendingIcon,
+    Visibility as ViewIcon, Timeline as TimelineIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import offboardingService from '../../services/offboardingService';
 
-// Import components
-import ClearanceChecklist from '../../components/Offboarding/ClearanceChecklist';
-import ExitTimeline from '../../components/Offboarding/ExitTimeline';
+const STATUS_COLOR = { APPROVED: 'success', REJECTED: 'error', PENDING: 'warning' };
+const DEPTS = ['IT', 'HR', 'ADMIN', 'FINANCE'];
 
-// Mock clearance data
-const mockClearanceData = [
-    {
-        id: 1,
-        employeeId: 'EMP001',
-        employeeName: 'John Smith',
-        department: 'Engineering',
-        lastWorkingDay: '2025-01-15',
-        overallStatus: 'In Progress',
-        clearances: {
-            it: { status: 'Approved', approvedBy: 'IT Admin', approvedOn: '2025-01-03', comments: 'All assets returned' },
-            hr: { status: 'Pending', approvedBy: '', approvedOn: '', comments: '' },
-            admin: { status: 'Pending', approvedBy: '', approvedOn: '', comments: '' },
-            finance: { status: 'Rejected', approvedBy: 'Finance Head', approvedOn: '2025-01-04', comments: 'Pending advance settlement' }
-        }
-    },
-    {
-        id: 2,
-        employeeId: 'EMP005',
-        employeeName: 'David Wilson',
-        department: 'Sales',
-        lastWorkingDay: '2024-12-31',
-        overallStatus: 'Completed',
-        clearances: {
-            it: { status: 'Approved', approvedBy: 'IT Admin', approvedOn: '2024-12-20', comments: 'All assets returned' },
-            hr: { status: 'Approved', approvedBy: 'HR Manager', approvedOn: '2024-12-22', comments: 'Documents collected' },
-            admin: { status: 'Approved', approvedBy: 'Admin Head', approvedOn: '2024-12-23', comments: 'Office access revoked' },
-            finance: { status: 'Approved', approvedBy: 'Finance Head', approvedOn: '2024-12-24', comments: 'All settlements cleared' }
-        }
-    }
-];
+const ClearanceTracking = ({ onClearanceChange }) => {
+    const [exits, setExits] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [selected, setSelected] = useState(null);
+    const [clearances, setClearances] = useState([]);
+    const [showDialog, setShowDialog] = useState(false);
+    const [approveForm, setApproveForm] = useState({ clearance_id: null, status: '', comments: '' });
+    const [showApproveDialog, setShowApproveDialog] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
 
-const ClearanceTracking = () => {
-    const [clearanceData, setClearanceData] = useState(mockClearanceData);
-    const [showClearanceDialog, setShowClearanceDialog] = useState(false);
-    const [selectedEmployee, setSelectedEmployee] = useState(null);
-
-    const handleViewClearance = (employee) => {
-        setSelectedEmployee(employee);
-        setShowClearanceDialog(true);
+    const load = async () => {
+        setLoading(true);
+        try {
+            const res = await offboardingService.getAllExits();
+            if (res.success) setExits((res.data || []).filter(e => e.status !== 'INITIATED'));
+        } catch { setError('Failed to load'); }
+        finally { setLoading(false); }
     };
 
-    const handleClearanceUpdate = (employeeId, step, status, comments) => {
-        setClearanceData(prev => prev.map(emp => {
-            if (emp.id === employeeId) {
-                const updatedClearances = {
-                    ...emp.clearances,
-                    [step]: {
-                        status,
-                        approvedBy: status === 'Approved' ? 'Current User' : status === 'Rejected' ? 'Current User' : '',
-                        approvedOn: status !== 'Pending' ? new Date().toISOString().split('T')[0] : '',
-                        comments
-                    }
-                };
+    useEffect(() => { load(); }, []);
 
-                // Calculate overall status
-                const statuses = Object.values(updatedClearances).map(c => c.status);
-                let overallStatus = 'In Progress';
-                if (statuses.every(s => s === 'Approved')) {
-                    overallStatus = 'Completed';
-                } else if (statuses.some(s => s === 'Rejected')) {
-                    overallStatus = 'Issues Found';
-                }
+    const openClearance = async (exit) => {
+        setSelected(exit);
+        const res = await offboardingService.getExitClearances(exit.exit_id);
+        if (res.success) setClearances(res.data || []);
+        setShowDialog(true);
+    };
 
-                return {
-                    ...emp,
-                    clearances: updatedClearances,
-                    overallStatus
-                };
+    const openApprove = (c) => {
+        setApproveForm({ clearance_id: c.clearance_id, status: c.status === 'APPROVED' ? 'APPROVED' : '', comments: c.comments || '' });
+        setShowApproveDialog(true);
+    };
+
+    const handleApprove = async () => {
+        setSubmitting(true);
+        try {
+            const res = await offboardingService.approveClearance(approveForm.clearance_id, approveForm.status, approveForm.comments);
+            if (res.success) {
+                setShowApproveDialog(false);
+                const updated = await offboardingService.getExitClearances(selected.exit_id);
+                if (updated.success) setClearances(updated.data || []);
+                load();
+                if (onClearanceChange) onClearanceChange();
             }
-            return emp;
-        }));
+        } catch { setError('Failed to update clearance'); }
+        finally { setSubmitting(false); }
     };
 
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'Approved': return 'success';
-            case 'Rejected': return 'error';
-            case 'Pending': return 'warning';
-            case 'Completed': return 'success';
-            case 'In Progress': return 'info';
-            case 'Issues Found': return 'error';
-            default: return 'default';
-        }
-    };
-
-    const getStatusIcon = (status) => {
-        switch (status) {
-            case 'Approved': return <CheckIcon />;
-            case 'Rejected': return <CancelIcon />;
-            case 'Pending': return <PendingIcon />;
-            default: return <PendingIcon />;
-        }
-    };
-
-    const calculateProgress = (clearances) => {
-        const total = Object.keys(clearances).length;
-        const approved = Object.values(clearances).filter(c => c.status === 'Approved').length;
-        return (approved / total) * 100;
+    const progress = (cls) => {
+        if (!cls.length) return 0;
+        return Math.round((cls.filter(c => c.status === 'APPROVED').length / cls.length) * 100);
     };
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-            {/* Quick Info */}
-            <Box sx={{ mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Clearance Tracking
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Track and manage employee clearance processes across departments
-                        </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1}>
-                        <Button
-                            variant="outlined"
-                            startIcon={<RefreshIcon />}
-                            onClick={() => setClearanceData(mockClearanceData)}
-                            size="small"
-                        >
-                            Refresh
-                        </Button>
-                    </Stack>
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Box>
+                    <Typography variant="h6" fontWeight={600}>Clearance Tracking</Typography>
+                    <Typography variant="body2" color="text.secondary">Track and manage employee clearance processes</Typography>
                 </Box>
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">Refresh</Button>
             </Box>
 
-            {/* Summary Cards */}
-            <Box sx={{ display: 'flex', gap: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 }, flexWrap: 'wrap' }}>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="primary.main" sx={{ fontWeight: 700 }}>
-                            {clearanceData.length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Active Clearances
-                        </Typography>
-                    </CardContent>
-                </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="info.main" sx={{ fontWeight: 700 }}>
-                            {clearanceData.filter(c => c.overallStatus === 'In Progress').length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            In Progress
-                        </Typography>
-                    </CardContent>
-                </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="success.main" sx={{ fontWeight: 700 }}>
-                            {clearanceData.filter(c => c.overallStatus === 'Completed').length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Completed
-                        </Typography>
-                    </CardContent>
-                </Card>
+            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                {[
+                    { label: 'Active', value: exits.filter(e => e.status === 'CLEARANCE').length, color: 'primary.main' },
+                    { label: 'Pending Clearance', value: exits.filter(e => e.status === 'CLEARANCE').length, color: 'warning.main' },
+                    { label: 'Cleared', value: exits.filter(e => ['INTERVIEW','SETTLEMENT','COMPLETED'].includes(e.status)).length, color: 'success.main' }
+                ].map(c => (
+                    <Card key={c.label} sx={{ flex: '1 1 180px' }}>
+                        <CardContent>
+                            <Typography variant="h4" color={c.color} fontWeight={700}>{c.value}</Typography>
+                            <Typography variant="body2" color="text.secondary">{c.label}</Typography>
+                        </CardContent>
+                    </Card>
+                ))}
             </Box>
 
-            {/* Clearance Table */}
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>
                         <TableRow sx={{ bgcolor: 'action.hover' }}>
-                            <TableCell sx={{ fontWeight: 600 }}>Employee</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Last Working Day</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Progress</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>IT</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>HR</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Admin</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Finance</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Overall Status</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
+                            {['Employee', 'Last Working Day', 'Status', 'Actions'].map(h => (
+                                <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>
+                            ))}
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {clearanceData.map((employee) => (
-                            <TableRow key={employee.id} hover>
+                        {loading ? (
+                            <TableRow><TableCell colSpan={4} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                        ) : exits.length === 0 ? (
+                            <TableRow><TableCell colSpan={4} align="center">No exits in clearance stage</TableCell></TableRow>
+                        ) : exits.map(exit => (
+                            <TableRow key={exit.exit_id} hover>
                                 <TableCell>
                                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                        <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.875rem' }}>
-                                            {employee.employeeName.charAt(0)}
+                                        <Avatar sx={{ width: 32, height: 32, mr: 1.5, fontSize: '0.875rem' }}>
+                                            {(exit.employee_name || '?').charAt(0)}
                                         </Avatar>
                                         <Box>
-                                            <Typography variant="body2" fontWeight={600}>
-                                                {employee.employeeName}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {employee.employeeId} • {employee.department}
-                                            </Typography>
+                                            <Typography variant="body2" fontWeight={600}>{exit.employee_name}</Typography>
+                                            <Typography variant="caption" color="text.secondary">{exit.employee_id} • {exit.department}</Typography>
                                         </Box>
                                     </Box>
                                 </TableCell>
+                                <TableCell>{exit.last_working_day ? new Date(exit.last_working_day).toLocaleDateString('en-IN') : '-'}</TableCell>
+                                <TableCell><Chip label={exit.status} size="small" color={{ CLEARANCE: 'warning', INTERVIEW: 'info', SETTLEMENT: 'secondary', COMPLETED: 'success' }[exit.status] || 'default'} /></TableCell>
                                 <TableCell>
-                                    <Typography variant="body2" fontWeight={500}>
-                                        {new Date(employee.lastWorkingDay).toLocaleDateString('en-IN')}
-                                    </Typography>
-                                </TableCell>
-                                <TableCell>
-                                    <Box sx={{ width: 100 }}>
-                                        <LinearProgress
-                                            variant="determinate"
-                                            value={calculateProgress(employee.clearances)}
-                                            color="primary"
-                                            sx={{ height: 6, borderRadius: 3, mb: 0.5 }}
-                                        />
-                                        <Typography variant="caption" color="text.secondary">
-                                            {Math.round(calculateProgress(employee.clearances))}%
-                                        </Typography>
-                                    </Box>
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={employee.clearances.it.status}
-                                        color={getStatusColor(employee.clearances.it.status)}
-                                        size="small"
-                                        icon={getStatusIcon(employee.clearances.it.status)}
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={employee.clearances.hr.status}
-                                        color={getStatusColor(employee.clearances.hr.status)}
-                                        size="small"
-                                        icon={getStatusIcon(employee.clearances.hr.status)}
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={employee.clearances.admin.status}
-                                        color={getStatusColor(employee.clearances.admin.status)}
-                                        size="small"
-                                        icon={getStatusIcon(employee.clearances.admin.status)}
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={employee.clearances.finance.status}
-                                        color={getStatusColor(employee.clearances.finance.status)}
-                                        size="small"
-                                        icon={getStatusIcon(employee.clearances.finance.status)}
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={employee.overallStatus}
-                                        color={getStatusColor(employee.overallStatus)}
-                                        size="small"
-                                    />
-                                </TableCell>
-                                <TableCell align="right">
-                                    <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                        <IconButton size="small" onClick={() => handleViewClearance(employee)}>
-                                            <ViewIcon />
-                                        </IconButton>
-                                    </Stack>
+                                    <IconButton size="small" onClick={() => openClearance(exit)}><ViewIcon /></IconButton>
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -311,23 +132,63 @@ const ClearanceTracking = () => {
             </TableContainer>
 
             {/* Clearance Detail Dialog */}
-            <Dialog open={showClearanceDialog} onClose={() => setShowClearanceDialog(false)} maxWidth="md" fullWidth>
+            <Dialog open={showDialog} onClose={() => setShowDialog(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <TimelineIcon />
-                        Clearance Details - {selectedEmployee?.employeeName}
+                        <TimelineIcon />Clearance — {selected?.employee_name}
                     </Box>
                 </DialogTitle>
                 <DialogContent>
-                    {selectedEmployee && (
-                        <ExitTimeline 
-                            employee={selectedEmployee}
-                            onClearanceUpdate={handleClearanceUpdate}
-                        />
+                    {clearances.length === 0 ? (
+                        <Typography color="text.secondary">No clearance records found.</Typography>
+                    ) : (
+                        <Box sx={{ mt: 1 }}>
+                            <LinearProgress variant="determinate" value={progress(clearances)} sx={{ mb: 2, height: 8, borderRadius: 4 }} />
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{progress(clearances)}% cleared</Typography>
+                            {clearances.map(c => (
+                                <Paper key={c.clearance_id} sx={{ p: 2, mb: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Box>
+                                        <Typography variant="subtitle2" fontWeight={600}>{c.department}</Typography>
+                                        {c.comments && <Typography variant="caption" color="text.secondary">{c.comments}</Typography>}
+                                        {c.approved_by_name && <Typography variant="caption" display="block" color="text.secondary">By: {c.approved_by_name}</Typography>}
+                                    </Box>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <Chip label={c.status} color={STATUS_COLOR[c.status] || 'default'} size="small" />
+                                        {c.status === 'PENDING' && (
+                                            <Button size="small" variant="outlined" onClick={() => openApprove(c)}>Update</Button>
+                                        )}
+                                    </Box>
+                                </Paper>
+                            ))}
+                        </Box>
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setShowClearanceDialog(false)}>Close</Button>
+                    <Button onClick={() => setShowDialog(false)}>Close</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Approve/Reject Dialog */}
+            <Dialog open={showApproveDialog} onClose={() => setShowApproveDialog(false)} maxWidth="xs" fullWidth>
+                <DialogTitle>Update Clearance</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+                        <FormControl fullWidth>
+                            <InputLabel>Decision</InputLabel>
+                            <Select value={approveForm.status} label="Decision" onChange={e => setApproveForm(p => ({ ...p, status: e.target.value }))}>
+                                <MenuItem value="APPROVED">Approve</MenuItem>
+                                <MenuItem value="REJECTED">Reject</MenuItem>
+                            </Select>
+                        </FormControl>
+                        <TextField fullWidth label="Comments" multiline rows={2} value={approveForm.comments}
+                            onChange={e => setApproveForm(p => ({ ...p, comments: e.target.value }))} />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowApproveDialog(false)}>Cancel</Button>
+                    <Button variant="contained" onClick={handleApprove} disabled={submitting || !approveForm.status}>
+                        {submitting ? <CircularProgress size={20} /> : 'Confirm'}
+                    </Button>
                 </DialogActions>
             </Dialog>
         </Box>

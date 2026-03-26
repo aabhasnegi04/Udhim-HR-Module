@@ -22,6 +22,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useProfileSwitching } from '../context/ProfileSwitchingContext';
+import { useLocation } from 'react-router-dom';
 
 // Import attendance components
 import AttendanceDashboard from './Attendance/AttendanceDashboard';
@@ -37,7 +38,12 @@ import ErrorBoundary from '../components/ErrorBoundary';
 const Attendance = () => {
     const { user, isEmployeeActive } = useAuth();
     const { currentView, isEmployeeView, isHRView, isManagerView } = useProfileSwitching();
-    const [activeTab, setActiveTab] = useState(0);
+    const location = useLocation();
+    const [activeTab, setActiveTab] = useState(() => {
+        const params = new URLSearchParams(location.search);
+        const t = parseInt(params.get('tab'), 10);
+        return isNaN(t) ? 0 : t;
+    });
 
     // Different tabs for different views
     const getAttendanceTabs = () => {

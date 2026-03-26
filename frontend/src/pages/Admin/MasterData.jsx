@@ -130,20 +130,41 @@ const MasterData = () => {
                     department_code: formData.department_code || formData.department_name?.substring(0, 3).toUpperCase(),
                     department_name: formData.department_name
                 };
-                result = await adminService.addDepartment(data);
+                
+                if (editItem) {
+                    // Update existing department
+                    result = await adminService.updateDepartment(editItem.department_id, data);
+                } else {
+                    // Create new department
+                    result = await adminService.addDepartment(data);
+                }
             } else if (dialogType === 'designations') {
                 const data = {
                     designation_name: formData.designation_name,
                     designation_level: parseInt(formData.designation_level) || null
                 };
-                result = await adminService.addDesignation(data);
+                
+                if (editItem) {
+                    // Update existing designation
+                    result = await adminService.updateDesignation(editItem.designation_id, data);
+                } else {
+                    // Create new designation
+                    result = await adminService.addDesignation(data);
+                }
             } else if (dialogType === 'locations') {
                 const data = {
                     location_name: formData.location_name,
                     city: formData.city,
                     country: formData.country
                 };
-                result = await adminService.addLocation(data);
+                
+                if (editItem) {
+                    // Update existing location
+                    result = await adminService.updateLocation(editItem.location_id, data);
+                } else {
+                    // Create new location
+                    result = await adminService.addLocation(data);
+                }
             }
 
             if (result?.success) {
@@ -156,6 +177,37 @@ const MasterData = () => {
         } catch (error) {
             setError('Operation failed');
             console.error('Submit error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDelete = async (type, item) => {
+        if (!window.confirm(`Are you sure you want to delete this ${type.slice(0, -1)}? This action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            setLoading(true);
+            let result;
+
+            if (type === 'departments') {
+                result = await adminService.deleteDepartment(item.department_id);
+            } else if (type === 'designations') {
+                result = await adminService.deleteDesignation(item.designation_id);
+            } else if (type === 'locations') {
+                result = await adminService.deleteLocation(item.location_id);
+            }
+
+            if (result?.success) {
+                setSuccess(`${type.slice(0, -1)} deleted successfully`);
+                loadAllData(); // Reload data
+            } else {
+                setError(result?.error || 'Delete operation failed');
+            }
+        } catch (error) {
+            setError('Delete operation failed');
+            console.error('Delete error:', error);
         } finally {
             setLoading(false);
         }
@@ -198,8 +250,16 @@ const MasterData = () => {
                                 <IconButton 
                                     size="small" 
                                     onClick={() => handleEdit('departments', dept)}
+                                    sx={{ mr: 1 }}
                                 >
                                     <EditIcon />
+                                </IconButton>
+                                <IconButton 
+                                    size="small" 
+                                    onClick={() => handleDelete('departments', dept)}
+                                    color="error"
+                                >
+                                    <DeleteIcon />
                                 </IconButton>
                             </TableCell>
                         </TableRow>
@@ -248,8 +308,16 @@ const MasterData = () => {
                                 <IconButton 
                                     size="small" 
                                     onClick={() => handleEdit('designations', designation)}
+                                    sx={{ mr: 1 }}
                                 >
                                     <EditIcon />
+                                </IconButton>
+                                <IconButton 
+                                    size="small" 
+                                    onClick={() => handleDelete('designations', designation)}
+                                    color="error"
+                                >
+                                    <DeleteIcon />
                                 </IconButton>
                             </TableCell>
                         </TableRow>
@@ -292,8 +360,16 @@ const MasterData = () => {
                                 <IconButton 
                                     size="small" 
                                     onClick={() => handleEdit('locations', location)}
+                                    sx={{ mr: 1 }}
                                 >
                                     <EditIcon />
+                                </IconButton>
+                                <IconButton 
+                                    size="small" 
+                                    onClick={() => handleDelete('locations', location)}
+                                    color="error"
+                                >
+                                    <DeleteIcon />
                                 </IconButton>
                             </TableCell>
                         </TableRow>

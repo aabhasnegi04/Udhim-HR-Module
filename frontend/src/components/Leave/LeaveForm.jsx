@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import AppDatePicker from '../common/AppDatePicker';
 import {
     Box,
     Typography,
@@ -103,21 +104,15 @@ const LeaveForm = ({
 
             {/* Date Selection */}
             <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                <TextField
-                    fullWidth
+                <AppDatePicker
                     label="From Date"
-                    type="date"
                     value={formData.fromDate}
-                    onChange={(e) => handleInputChange('fromDate', e.target.value)}
-                    slotProps={{ inputLabel: { shrink: true } }}
+                    onChange={(v) => handleInputChange('fromDate', v)}
                 />
-                <TextField
-                    fullWidth
+                <AppDatePicker
                     label="To Date"
-                    type="date"
                     value={formData.toDate}
-                    onChange={(e) => handleInputChange('toDate', e.target.value)}
-                    slotProps={{ inputLabel: { shrink: true } }}
+                    onChange={(v) => handleInputChange('toDate', v)}
                 />
             </Box>
 

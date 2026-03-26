@@ -13,19 +13,29 @@ export const useProfileSwitching = () => {
 
 export const ProfileSwitchingProvider = ({ children }) => {
   const { user } = useAuth();
-  const [currentView, setCurrentView] = useState('EMPLOYEE');
+
+  // Initialize from localStorage immediately — avoids EMPLOYEE flash on reload
+  const [currentView, setCurrentView] = useState(() => {
+    return localStorage.getItem('preferred_view') || 'EMPLOYEE';
+  });
   const [profileInfo, setProfileInfo] = useState(null);
 
-  // Initialize profile switching info from user data
+  // Sync profile info from user data; only override view if no persisted preference
   useEffect(() => {
     if (user?.profile_switching) {
       setProfileInfo(user.profile_switching);
-      
+
+      const persisted = localStorage.getItem('preferred_view');
       const defaultView = user.profile_switching.default_view || 'EMPLOYEE';
-      setCurrentView(defaultView);
-      
-      // Store initial preference in localStorage
-      localStorage.setItem('preferred_view', defaultView);
+      const available = user.profile_switching.available_views || ['EMPLOYEE'];
+
+      // Use persisted view if it's still valid for this user, otherwise fall back to default
+      if (persisted && available.includes(persisted)) {
+        setCurrentView(persisted);
+      } else {
+        setCurrentView(defaultView);
+        localStorage.setItem('preferred_view', defaultView);
+      }
     }
   }, [user]);
 

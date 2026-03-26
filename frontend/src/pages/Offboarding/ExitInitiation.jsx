@@ -1,263 +1,160 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-    Box,
-    Typography,
-    Paper,
-    Card,
-    CardContent,
-    Button,
-    TextField,
-    MenuItem,
-    FormControl,
-    InputLabel,
-    Select,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Chip,
-    Avatar,
-    IconButton,
-    Stack,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Divider,
-    Alert
+    Box, Typography, Paper, Card, CardContent, Button, TextField,
+    MenuItem, FormControl, InputLabel, Select, Table, TableBody,
+    TableCell, TableContainer, TableHead, TableRow, Chip, Avatar,
+    IconButton, Stack, Dialog, DialogTitle, DialogContent, DialogActions,
+    Divider, Alert, CircularProgress
 } from '@mui/material';
-import {
-    Add as AddIcon,
-    Visibility as ViewIcon,
-    Edit as EditIcon,
-    ExitToApp as ExitIcon,
-    Refresh as RefreshIcon,
-    Person as PersonIcon
-} from '@mui/icons-material';
+import { Add as AddIcon, Visibility as ViewIcon, ExitToApp as ExitIcon, Refresh as RefreshIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import offboardingService from '../../services/offboardingService';
+import employeeService from '../../services/employeeService';
+import AppDatePicker from '../../components/common/AppDatePicker';
 
-// Mock exit data
-const mockExitData = [
-    {
-        id: 1,
-        employeeId: 'EMP001',
-        employeeName: 'John Smith',
-        department: 'Engineering',
-        designation: 'Senior Developer',
-        lastWorkingDay: '2025-01-15',
-        exitType: 'Resignation',
-        exitReason: 'Better Opportunity',
-        status: 'In Progress',
-        initiatedBy: 'HR Team',
-        initiatedOn: '2025-01-02'
-    },
-    {
-        id: 2,
-        employeeId: 'EMP005',
-        employeeName: 'David Wilson',
-        department: 'Sales',
-        designation: 'Sales Executive',
-        lastWorkingDay: '2024-12-31',
-        exitType: 'Termination',
-        exitReason: 'Performance Issues',
-        status: 'Completed',
-        initiatedBy: 'HR Team',
-        initiatedOn: '2024-12-15'
-    }
-];
+const STATUS_COLOR = { INITIATED: 'default', CLEARANCE: 'warning', INTERVIEW: 'info', SETTLEMENT: 'secondary', COMPLETED: 'success', CANCELLED: 'error' };
 
-const ExitInitiation = () => {
-    const [exitRequests, setExitRequests] = useState(mockExitData);
-    const [showInitiateDialog, setShowInitiateDialog] = useState(false);
-    const [formData, setFormData] = useState({
-        employeeId: '',
-        lastWorkingDay: '',
-        exitType: '',
-        exitReason: '',
-        notes: ''
-    });
+const ExitInitiation = ({ onExitChange }) => {
+    const [exits, setExits] = useState([]);
+    const [employees, setEmployees] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [showDialog, setShowDialog] = useState(false);
+    const [viewTarget, setViewTarget] = useState(null);
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [form, setForm] = useState({ employee_id: '', exit_type: '', exit_reason: '', last_working_day: '', notes: '' });
 
-    const handleInputChange = (field, value) => {
-        setFormData(prev => ({
-            ...prev,
-            [field]: value
-        }));
+    const load = async () => {
+        setLoading(true);
+        try {
+            const [exitsRes, empRes] = await Promise.all([
+                offboardingService.getAllExits(),
+                employeeService.getActiveEmployees()
+            ]);
+            if (exitsRes.success) setExits(exitsRes.data || []);
+            if (empRes.success) setEmployees(empRes.data || []);
+        } catch (e) {
+            setError('Failed to load data');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleInitiateExit = () => {
-        const newExit = {
-            id: exitRequests.length + 1,
-            ...formData,
-            employeeName: 'Selected Employee', // In real app, fetch from employee ID
-            department: 'Department',
-            designation: 'Designation',
-            status: 'In Progress',
-            initiatedBy: 'HR Team',
-            initiatedOn: new Date().toISOString().split('T')[0]
-        };
-        
-        setExitRequests(prev => [...prev, newExit]);
-        setShowInitiateDialog(false);
-        resetForm();
+    useEffect(() => { load(); }, []);
+
+    const handleSubmit = async () => {
+        if (!form.employee_id || !form.exit_type || !form.last_working_day) return;
+        setSubmitting(true);
+        setError('');
+        try {
+            const res = await offboardingService.initiateExit(form);
+            console.log('initiateExit response:', res);
+            if (res && res.success) {
+                setSuccess('Exit process initiated successfully');
+                setShowDialog(false);
+                setForm({ employee_id: '', exit_type: '', exit_reason: '', last_working_day: '', notes: '' });
+                load();
+                if (onExitChange) onExitChange();
+            } else {
+                setError(res?.message || 'Failed to initiate exit');
+            }
+        } catch (e) {
+            console.error('initiateExit error:', e);
+            setError(e?.message || 'Failed to initiate exit');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    const resetForm = () => {
-        setFormData({
-            employeeId: '',
-            lastWorkingDay: '',
-            exitType: '',
-            exitReason: '',
-            notes: ''
-        });
-    };
-
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'In Progress': return 'warning';
-            case 'Completed': return 'success';
-            case 'Cancelled': return 'error';
-            default: return 'default';
+    const handleDelete = async () => {
+        if (!deleteTarget) return;
+        setSubmitting(true);
+        try {
+            const res = await offboardingService.deleteExit(deleteTarget.exit_id);
+            if (res && res.success) {
+                setSuccess('Exit record deleted');
+                setDeleteTarget(null);
+                load();
+            } else {
+                setError(res?.message || 'Failed to delete');
+            }
+        } catch (e) {
+            setError(e?.message || 'Failed to delete');
+        } finally {
+            setSubmitting(false);
         }
     };
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-            {/* Quick Info */}
-            <Box sx={{ mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            Employee Exit Initiation
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Initiate and manage employee offboarding processes
-                        </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1}>
-                        <Button
-                            variant="outlined"
-                            startIcon={<RefreshIcon />}
-                            onClick={() => setExitRequests(mockExitData)}
-                            size="small"
-                        >
-                            Refresh
-                        </Button>
-                        <Button
-                            variant="contained"
-                            startIcon={<AddIcon />}
-                            onClick={() => setShowInitiateDialog(true)}
-                        >
-                            Initiate Exit
-                        </Button>
-                    </Stack>
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+            {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Box>
+                    <Typography variant="h6" fontWeight={600}>Employee Exit Initiation</Typography>
+                    <Typography variant="body2" color="text.secondary">Initiate and manage employee offboarding processes</Typography>
                 </Box>
+                <Stack direction="row" spacing={1}>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">Refresh</Button>
+                    <Button variant="contained" startIcon={<AddIcon />} onClick={() => setShowDialog(true)}>Initiate Exit</Button>
+                </Stack>
             </Box>
 
             {/* Summary Cards */}
-            <Box sx={{ display: 'flex', gap: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 }, flexWrap: 'wrap' }}>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="primary.main" sx={{ fontWeight: 700 }}>
-                            {exitRequests.length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Total Exit Requests
-                        </Typography>
-                    </CardContent>
-                </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="warning.main" sx={{ fontWeight: 700 }}>
-                            {exitRequests.filter(e => e.status === 'In Progress').length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            In Progress
-                        </Typography>
-                    </CardContent>
-                </Card>
-                <Card sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h4" color="success.main" sx={{ fontWeight: 700 }}>
-                            {exitRequests.filter(e => e.status === 'Completed').length}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Completed
-                        </Typography>
-                    </CardContent>
-                </Card>
+            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                {[
+                    { label: 'Total', value: exits.length, color: 'primary.main' },
+                    { label: 'In Progress', value: exits.filter(e => !['COMPLETED','CANCELLED'].includes(e.status)).length, color: 'warning.main' },
+                    { label: 'Completed', value: exits.filter(e => e.status === 'COMPLETED').length, color: 'success.main' }
+                ].map(c => (
+                    <Card key={c.label} sx={{ flex: '1 1 180px' }}>
+                        <CardContent>
+                            <Typography variant="h4" color={c.color} fontWeight={700}>{c.value}</Typography>
+                            <Typography variant="body2" color="text.secondary">{c.label}</Typography>
+                        </CardContent>
+                    </Card>
+                ))}
             </Box>
 
-            {/* Exit Requests Table */}
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>
                         <TableRow sx={{ bgcolor: 'action.hover' }}>
-                            <TableCell sx={{ fontWeight: 600 }}>Employee</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Exit Type</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Last Working Day</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Reason</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Initiated On</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }} align="right">Actions</TableCell>
+                            {['Employee', 'Exit Type', 'Last Working Day', 'Reason', 'Status', 'Initiated On', ''].map(h => (
+                                <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>
+                            ))}
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {exitRequests.map((exit) => (
-                            <TableRow key={exit.id} hover>
+                        {loading ? (
+                            <TableRow><TableCell colSpan={7} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                        ) : exits.length === 0 ? (
+                            <TableRow><TableCell colSpan={7} align="center">No exit records found</TableCell></TableRow>
+                        ) : exits.map(exit => (
+                            <TableRow key={exit.exit_id} hover>
                                 <TableCell>
                                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                        <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.875rem' }}>
-                                            {exit.employeeName.charAt(0)}
+                                        <Avatar sx={{ width: 32, height: 32, mr: 1.5, fontSize: '0.875rem' }}>
+                                            {(exit.employee_name || '?').charAt(0)}
                                         </Avatar>
                                         <Box>
-                                            <Typography variant="body2" fontWeight={600}>
-                                                {exit.employeeName}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {exit.employeeId} • {exit.department}
-                                            </Typography>
+                                            <Typography variant="body2" fontWeight={600}>{exit.employee_name}</Typography>
+                                            <Typography variant="caption" color="text.secondary">{exit.employee_id} • {exit.department}</Typography>
                                         </Box>
                                     </Box>
                                 </TableCell>
-                                <TableCell>
-                                    <Chip 
-                                        label={exit.exitType} 
-                                        size="small"
-                                        color={exit.exitType === 'Resignation' ? 'info' : 'error'}
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant="body2" fontWeight={500}>
-                                        {new Date(exit.lastWorkingDay).toLocaleDateString('en-IN')}
-                                    </Typography>
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant="body2">
-                                        {exit.exitReason}
-                                    </Typography>
-                                </TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={exit.status}
-                                        color={getStatusColor(exit.status)}
-                                        size="small"
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant="body2">
-                                        {new Date(exit.initiatedOn).toLocaleDateString('en-IN')}
-                                    </Typography>
-                                </TableCell>
+                                <TableCell><Chip label={exit.exit_type} size="small" color={exit.exit_type === 'Resignation' ? 'info' : 'default'} /></TableCell>
+                                <TableCell>{exit.last_working_day ? new Date(exit.last_working_day).toLocaleDateString('en-IN') : '-'}</TableCell>
+                                <TableCell><Typography variant="body2">{exit.exit_reason || '-'}</Typography></TableCell>
+                                <TableCell><Chip label={exit.status} color={STATUS_COLOR[exit.status] || 'default'} size="small" /></TableCell>
+                                <TableCell>{exit.initiated_on ? new Date(exit.initiated_on).toLocaleDateString('en-IN') : '-'}</TableCell>
                                 <TableCell align="right">
-                                    <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                        <IconButton size="small">
-                                            <ViewIcon />
-                                        </IconButton>
-                                        <IconButton size="small">
-                                            <EditIcon />
-                                        </IconButton>
-                                    </Stack>
+                                    <IconButton size="small" onClick={() => setViewTarget(exit)} title="View details"><ViewIcon /></IconButton>
+                                    <IconButton size="small" color="error" onClick={() => setDeleteTarget(exit)} title="Delete exit record">
+                                        <DeleteIcon fontSize="small" />
+                                    </IconButton>
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -265,98 +162,104 @@ const ExitInitiation = () => {
                 </Table>
             </TableContainer>
 
-            {/* Initiate Exit Dialog */}
-            <Dialog open={showInitiateDialog} onClose={() => setShowInitiateDialog(false)} maxWidth="md" fullWidth>
+            {/* View Detail Dialog */}
+            <Dialog open={!!viewTarget} onClose={() => setViewTarget(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <ExitIcon />
-                        Initiate Employee Exit
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar sx={{ width: 36, height: 36 }}>{(viewTarget?.employee_name || '?').charAt(0)}</Avatar>
+                        <Box>
+                            <Typography fontWeight={600}>{viewTarget?.employee_name}</Typography>
+                            <Typography variant="caption" color="text.secondary">{viewTarget?.employee_id} • {viewTarget?.department}</Typography>
+                        </Box>
                     </Box>
                 </DialogTitle>
                 <DialogContent>
-                    <Alert severity="info" sx={{ mb: 3, mt: 1 }}>
-                        This will start the formal offboarding process for the selected employee.
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 1 }}>
+                        {[
+                            { label: 'Exit Type', value: viewTarget?.exit_type },
+                            { label: 'Status', value: viewTarget?.status },
+                            { label: 'Last Working Day', value: viewTarget?.last_working_day ? new Date(viewTarget.last_working_day).toLocaleDateString('en-IN') : '-' },
+                            { label: 'Initiated On', value: viewTarget?.initiated_on ? new Date(viewTarget.initiated_on).toLocaleDateString('en-IN') : '-' },
+                            { label: 'Designation', value: viewTarget?.designation || '-' },
+                            { label: 'Completed On', value: viewTarget?.completed_on ? new Date(viewTarget.completed_on).toLocaleDateString('en-IN') : 'Not yet' },
+                        ].map(({ label, value }) => (
+                            <Box key={label}>
+                                <Typography variant="caption" color="text.secondary">{label}</Typography>
+                                <Typography variant="body2" fontWeight={500}>{value}</Typography>
+                            </Box>
+                        ))}
+                    </Box>
+                    {viewTarget?.exit_reason && (
+                        <Box sx={{ mt: 2 }}>
+                            <Typography variant="caption" color="text.secondary">Reason</Typography>
+                            <Typography variant="body2">{viewTarget.exit_reason}</Typography>
+                        </Box>
+                    )}
+                    {viewTarget?.notes && (
+                        <Box sx={{ mt: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary">Notes</Typography>
+                            <Typography variant="body2">{viewTarget.notes}</Typography>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setViewTarget(null)}>Close</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
+                <DialogTitle>Delete Exit Record</DialogTitle>
+                <DialogContent>
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                        This will permanently delete the exit record for <strong>{deleteTarget?.employee_name}</strong> along with all clearance, interview, and settlement data. This cannot be undone.
                     </Alert>
-                    
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        {/* Employee Selection */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Employee Information
-                            </Typography>
-                            <FormControl fullWidth>
-                                <InputLabel>Select Employee</InputLabel>
-                                <Select
-                                    value={formData.employeeId}
-                                    label="Select Employee"
-                                    onChange={(e) => handleInputChange('employeeId', e.target.value)}
-                                >
-                                    <MenuItem value="EMP001">John Smith (EMP001) - Engineering</MenuItem>
-                                    <MenuItem value="EMP002">Sarah Johnson (EMP002) - HR</MenuItem>
-                                    <MenuItem value="EMP003">Michael Chen (EMP003) - Engineering</MenuItem>
-                                    <MenuItem value="EMP004">Emily Davis (EMP004) - Sales</MenuItem>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+                    <Button variant="contained" color="error" onClick={handleDelete} disabled={submitting}>
+                        {submitting ? <CircularProgress size={20} /> : 'Delete'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Initiate Dialog */}
+            <Dialog open={showDialog} onClose={() => setShowDialog(false)} maxWidth="md" fullWidth>
+                <DialogTitle><Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><ExitIcon />Initiate Employee Exit</Box></DialogTitle>
+                <DialogContent>
+                    <Alert severity="info" sx={{ mb: 3, mt: 1 }}>This will start the formal offboarding process for the selected employee.</Alert>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                        <FormControl fullWidth required>
+                            <InputLabel>Select Employee</InputLabel>
+                            <Select value={form.employee_id} label="Select Employee" onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
+                                {employees.map(emp => (
+                                    <MenuItem key={emp.employee_code} value={emp.employee_code}>
+                                        {emp.employee_name} ({emp.employee_code}) — {emp.department}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <Divider />
+                        <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+                            <AppDatePicker required label="Last Working Day" value={form.last_working_day}
+                                onChange={v => setForm(p => ({ ...p, last_working_day: v }))} />
+                            <FormControl fullWidth required>
+                                <InputLabel>Exit Type</InputLabel>
+                                <Select value={form.exit_type} label="Exit Type" onChange={e => setForm(p => ({ ...p, exit_type: e.target.value }))}>
+                                    {['Resignation', 'Termination', 'Absconded', 'Retirement', 'End of Contract'].map(t => (
+                                        <MenuItem key={t} value={t}>{t}</MenuItem>
+                                    ))}
                                 </Select>
                             </FormControl>
                         </Box>
-
-                        <Divider />
-
-                        {/* Exit Details */}
-                        <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                                Exit Details
-                            </Typography>
-                            <Box sx={{ display: 'flex', gap: 2, mb: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                                <TextField
-                                    fullWidth
-                                    label="Last Working Day"
-                                    type="date"
-                                    value={formData.lastWorkingDay}
-                                    onChange={(e) => handleInputChange('lastWorkingDay', e.target.value)}
-                                    slotProps={{ inputLabel: { shrink: true } }}
-                                />
-                                <FormControl fullWidth>
-                                    <InputLabel>Exit Type</InputLabel>
-                                    <Select
-                                        value={formData.exitType}
-                                        label="Exit Type"
-                                        onChange={(e) => handleInputChange('exitType', e.target.value)}
-                                    >
-                                        <MenuItem value="Resignation">Resignation</MenuItem>
-                                        <MenuItem value="Termination">Termination</MenuItem>
-                                        <MenuItem value="Absconded">Absconded</MenuItem>
-                                        <MenuItem value="Retirement">Retirement</MenuItem>
-                                        <MenuItem value="End of Contract">End of Contract</MenuItem>
-                                    </Select>
-                                </FormControl>
-                            </Box>
-                            <TextField
-                                fullWidth
-                                label="Exit Reason"
-                                value={formData.exitReason}
-                                onChange={(e) => handleInputChange('exitReason', e.target.value)}
-                                sx={{ mb: 2 }}
-                            />
-                            <TextField
-                                fullWidth
-                                label="Additional Notes"
-                                multiline
-                                rows={3}
-                                value={formData.notes}
-                                onChange={(e) => handleInputChange('notes', e.target.value)}
-                                placeholder="Any additional information about the exit..."
-                            />
-                        </Box>
+                        <TextField fullWidth label="Exit Reason" value={form.exit_reason} onChange={e => setForm(p => ({ ...p, exit_reason: e.target.value }))} />
+                        <TextField fullWidth label="Additional Notes" multiline rows={3} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setShowInitiateDialog(false)}>Cancel</Button>
-                    <Button 
-                        variant="contained" 
-                        onClick={handleInitiateExit}
-                        disabled={!formData.employeeId || !formData.lastWorkingDay || !formData.exitType}
-                    >
-                        Initiate Exit Process
+                    <Button onClick={() => setShowDialog(false)}>Cancel</Button>
+                    <Button variant="contained" onClick={handleSubmit} disabled={submitting || !form.employee_id || !form.exit_type || !form.last_working_day}>
+                        {submitting ? <CircularProgress size={20} /> : 'Initiate Exit Process'}
                     </Button>
                 </DialogActions>
             </Dialog>

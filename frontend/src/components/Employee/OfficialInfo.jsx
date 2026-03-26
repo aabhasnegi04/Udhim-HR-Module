@@ -16,6 +16,7 @@ import {
     Category as CategoryIcon,
     LocationOn as LocationIcon,
 } from '@mui/icons-material';
+import AppDatePicker from '../common/AppDatePicker';
 
 const InfoItem = ({ icon, label, value, isChip = false, chipColor = 'primary', isEditing, field, onFieldChange, type = 'text', options = [] }) => {
     // Helper to convert date to YYYY-MM-DD format for input
@@ -77,14 +78,11 @@ const InfoItem = ({ icon, label, value, isChip = false, chipColor = 'primary', i
                             ))}
                         </TextField>
                     ) : type === 'date' ? (
-                        <TextField
-                            fullWidth
-                            size="small"
-                            type="date"
+                        <AppDatePicker
                             value={getDateInputValue(value)}
-                            onChange={(e) => onFieldChange(field, e.target.value)}
+                            onChange={(v) => onFieldChange(field, v)}
+                            size="small"
                             sx={{ mt: 0.5 }}
-                            InputLabelProps={{ shrink: true }}
                         />
                     ) : (
                         <TextField
@@ -114,7 +112,7 @@ const InfoItem = ({ icon, label, value, isChip = false, chipColor = 'primary', i
     );
 };
 
-const OfficialInfo = ({ employee, isEditing, onFieldChange }) => {
+const OfficialInfo = ({ employee, isEditing, onFieldChange, employmentTypes = [], departments = [], designations = [], locations = [] }) => {
     if (!employee) return null;
 
     return (
@@ -148,6 +146,8 @@ const OfficialInfo = ({ employee, isEditing, onFieldChange }) => {
                             isEditing={isEditing}
                             field="department"
                             onFieldChange={onFieldChange}
+                            type={isEditing ? "select" : "text"}
+                            options={departments.map(dept => dept.department_name || dept)}
                         />
                         <InfoItem
                             icon={<WorkIcon />}
@@ -156,6 +156,8 @@ const OfficialInfo = ({ employee, isEditing, onFieldChange }) => {
                             isEditing={isEditing}
                             field="designation"
                             onFieldChange={onFieldChange}
+                            type={isEditing ? "select" : "text"}
+                            options={designations.map(designation => designation.designation_name || designation)}
                         />
                     </Grid>
                     
@@ -170,7 +172,7 @@ const OfficialInfo = ({ employee, isEditing, onFieldChange }) => {
                             field="employmentType"
                             onFieldChange={onFieldChange}
                             type="select"
-                            options={['Full-Time', 'Part-Time', 'Contract', 'Intern']}
+                            options={employmentTypes}
                         />
                         <InfoItem
                             icon={<LocationIcon />}
@@ -179,6 +181,8 @@ const OfficialInfo = ({ employee, isEditing, onFieldChange }) => {
                             isEditing={isEditing}
                             field="workLocation"
                             onFieldChange={onFieldChange}
+                            type={isEditing ? "select" : "text"}
+                            options={locations.map(location => location.location_name || location)}
                         />
                     </Grid>
                 </Grid>

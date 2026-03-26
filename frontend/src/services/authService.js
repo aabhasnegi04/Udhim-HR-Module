@@ -2,12 +2,14 @@ import apiService from './api';
 
 class AuthService {
   // Login user
-  async login(email, password, role) {
+  async login(email, password) {
     try {
-      const response = await apiService.post('/auth/login', {
+      const companyCode = import.meta.env.VITE_COMPANY_CODE;
+      
+      const response = await apiService.post('/auth/multi-tenant/login', {
         email,
         password,
-        role,
+        company_code: companyCode,
       });
 
       if (response.success) {
@@ -26,6 +28,8 @@ class AuthService {
           employee_id: user.employee_id,
           employee_status: user.employee_status,
           user_is_active: user.user_is_active,
+          company_code: user.company_code,
+          company_name: user.company_name || null,
           profile_switching: profile_switching
         };
         
@@ -50,7 +54,7 @@ class AuthService {
   // Get current user info
   async getCurrentUser() {
     try {
-      const response = await apiService.get('/auth/me');
+      const response = await apiService.get('/auth/multi-tenant/me');
       
       if (response.success) {
         return { success: true, user: response.data.user };
@@ -93,7 +97,7 @@ class AuthService {
   // Change password
   async changePassword(currentPassword, newPassword, confirmPassword) {
     try {
-      const response = await apiService.post('/auth/change-password', {
+      const response = await apiService.post('/auth/multi-tenant/change-password', {
         current_password: currentPassword,
         new_password: newPassword,
         confirm_password: confirmPassword,

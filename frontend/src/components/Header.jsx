@@ -21,6 +21,8 @@ import {
 import {
     Menu as MenuIcon,
     Search as SearchIcon,
+    ChevronLeft as ChevronLeftIcon,
+    Menu as SidebarIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -29,7 +31,7 @@ import ProfileSwitcher from './ProfileSwitcher';
 import NotificationBell from './Notifications/NotificationBell';
 import employeeService from '../services/employeeService';
 
-const Header = ({ onMenuClick }) => {
+const Header = ({ onMenuClick, onSidebarCollapse, sidebarCollapsed }) => {
     const { user } = useAuth();
     const { currentView } = useProfileSwitching();
     const navigate = useNavigate();
@@ -79,13 +81,14 @@ const Header = ({ onMenuClick }) => {
             }}
         >
             <Toolbar>
+                {/* Mobile hamburger */}
                 <IconButton
                     color="inherit"
                     aria-label="open drawer"
                     edge="start"
                     onClick={onMenuClick}
                     sx={{ 
-                        mr: 2, 
+                        mr: 1, 
                         display: { md: 'none' },
                         p: 1.5,
                         '&:hover': { bgcolor: 'action.hover' }
@@ -94,10 +97,27 @@ const Header = ({ onMenuClick }) => {
                     <MenuIcon />
                 </IconButton>
 
+                {/* Desktop sidebar collapse toggle */}
+                <IconButton
+                    color="inherit"
+                    onClick={onSidebarCollapse}
+                    sx={{
+                        mr: 1,
+                        display: { xs: 'none', md: 'flex' },
+                        p: 1,
+                        '&:hover': { bgcolor: 'action.hover' }
+                    }}
+                >
+                    <ChevronLeftIcon sx={{
+                        transform: sidebarCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.3s',
+                    }} />
+                </IconButton>
+
                 <Box sx={{ display: 'flex', alignItems: 'center', mr: { xs: 2, sm: 4 }, py: 1 }}>
                     <img
-                        src="https://www.udhim.com/logo.png"
-                        alt="Udhim Logo"
+                        src={import.meta.env.VITE_COMPANY_LOGO || "https://www.udhim.com/logo.png"}
+                        alt={import.meta.env.VITE_COMPANY_NAME || 'HRMS'}
                         style={{ height: isMobile ? '40px' : '56px', width: 'auto', objectFit: 'contain' }}
                     />
                 </Box>

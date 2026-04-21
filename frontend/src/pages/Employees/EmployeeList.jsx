@@ -333,23 +333,22 @@ const EmployeeList = () => {
                                 }}
                                 onClick={() => handleViewEmployee(employee.employee_id)}
                             >
-                                <TableCell sx={{ fontWeight: 500, color: 'primary.main' }}>
+                                <TableCell sx={{ fontWeight: 500, color: 'primary.main', py: 1.25 }}>
                                     {employee.employee_code}
                                 </TableCell>
-                                <TableCell>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <TableCell sx={{ py: 1.25 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                                         <Avatar 
                                             src={`${import.meta.env.VITE_API_BASE || 'http://localhost:5000'}/employees/${employee.employee_id}/photo?size=80&company=${import.meta.env.VITE_COMPANY_CODE || 'udhim'}`}
                                             sx={{ 
                                                 bgcolor: employee.status === 'INACTIVE' ? 'grey.400' : 'primary.main',
-                                                width: 40,
-                                                height: 40,
-                                                fontSize: '0.875rem'
+                                                width: 34,
+                                                height: 34,
+                                                fontSize: '0.8rem'
                                             }}
                                             imgProps={{
-                                                loading: 'lazy',  // Lazy load images
+                                                loading: 'lazy',
                                                 onError: (e) => {
-                                                    // Fallback to initials if image fails to load
                                                     e.target.style.display = 'none';
                                                 }
                                             }}
@@ -372,9 +371,9 @@ const EmployeeList = () => {
                                         </Box>
                                     </Box>
                                 </TableCell>
-                                <TableCell>{employee.department}</TableCell>
-                                <TableCell>{employee.designation}</TableCell>
-                                <TableCell>
+                                <TableCell sx={{ py: 1.25 }}>{employee.department}</TableCell>
+                                <TableCell sx={{ py: 1.25 }}>{employee.designation}</TableCell>
+                                <TableCell sx={{ py: 1.25 }}>
                                     <Chip
                                         label={employee.status}
                                         color={employee.status === 'ACTIVE' ? 'success' : 'error'}
@@ -382,7 +381,7 @@ const EmployeeList = () => {
                                         sx={{ fontWeight: 500 }}
                                     />
                                 </TableCell>
-                                <TableCell align="center">
+                                <TableCell align="center" sx={{ py: 1.25 }}>
                                     <IconButton 
                                         size="small" 
                                         color="primary"

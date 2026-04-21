@@ -354,7 +354,8 @@ class AttendanceService {
             total_rows: result.data.total_rows,
             successful_rows: result.data.successful_rows,
             failed_rows: result.data.failed_rows,
-            errors: result.data.errors || []
+            errors: result.data.errors || [],
+            date_range: result.data.date_range || null
           }
         };
       }

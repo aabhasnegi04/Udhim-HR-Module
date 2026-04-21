@@ -29,7 +29,7 @@ const PayslipBody = ({ payslipData }) => {
     return (
         <Box sx={{ p: 2 }}>
             <Box sx={{ textAlign: 'center', mb: 3, pb: 2, borderBottom: 2, borderColor: 'primary.main' }}>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: 'primary.main' }}>UDHIM TECHNOLOGIES</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 700, color: 'primary.main' }}>{import.meta.env.VITE_COMPANY_NAME || 'Company'}</Typography>
                 <Typography variant="body2" color="text.secondary">Salary Slip for {employee_details?.period_name}</Typography>
             </Box>
             <Grid container spacing={2} sx={{ mb: 3 }}>

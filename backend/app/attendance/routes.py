@@ -860,7 +860,8 @@ def bulk_upload_attendance():
                         'total_rows': result['total_rows'],
                         'successful_rows': result['successful_rows'],
                         'failed_rows': result['failed_rows'],
-                        'errors': result['errors']
+                        'errors': result['errors'],
+                        'date_range': result.get('date_range')
                     }
                 )
             else:
@@ -943,13 +944,27 @@ def edit_attendance_record(attendance_id):
                 f"Missing required fields: {', '.join(missing_fields)}"
             )
         
-        # Parse date
+        # Parse date - handle multiple formats
         try:
-            attendance_date = datetime.strptime(data['attendance_date'], '%Y-%m-%d').date()
+            date_str = data['attendance_date']
+            # If it's already a date object or datetime string from frontend
+            if isinstance(date_str, str):
+                # Try multiple date formats
+                for fmt in ['%Y-%m-%d', '%a, %d %b %Y %H:%M:%S %Z', '%Y-%m-%dT%H:%M:%S.%fZ']:
+                    try:
+                        attendance_date = datetime.strptime(date_str, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    # If none of the formats worked, raise error
+                    raise ValueError(f"Unsupported date format: {date_str}")
+            else:
+                attendance_date = date_str
             current_app.logger.info(f"Parsed date: {attendance_date}")
-        except ValueError as e:
+        except (ValueError, AttributeError) as e:
             current_app.logger.error(f"Date parsing error: {e}, received: {data['attendance_date']}")
-            return validation_error_response("Invalid date format. Use YYYY-MM-DD")
+            return validation_error_response("Invalid date format. Use YYYY-MM-DD or ISO format")
         
         # Parse times if provided
         check_in_time = None
@@ -1227,3 +1242,302 @@ def update_kiosk(kiosk_id):
     except Exception as e:
         current_app.logger.error(f"Update kiosk error: {str(e)}")
         return error_response("Failed to update kiosk", status_code=500)
+
+
+# ============================================================================
+# SHIFT MANAGEMENT (HR ONLY)
+# ============================================================================
+
+@attendance_bp.route('/shifts', methods=['GET'])
+@company_required
+@hr_required
+def get_shifts():
+    """Get all shift definitions"""
+    try:
+        result = MultiTenantExecutor.execute_procedure('proc_get_shift_definitions')
+        if result['success']:
+            shifts = result['data']
+            # Convert TIME objects to strings for JSON serialization
+            for s in shifts:
+                if s.get('start_time') and not isinstance(s['start_time'], str):
+                    s['start_time'] = str(s['start_time'])
+                if s.get('end_time') and not isinstance(s['end_time'], str):
+                    s['end_time'] = str(s['end_time'])
+            return success_response(message='Shifts retrieved', data={'shifts': shifts})
+        return error_response('Failed to retrieve shifts', status_code=500)
+    except Exception as e:
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/shifts', methods=['POST'])
+@company_required
+@hr_required
+def create_shift():
+    """Create a new shift definition"""
+    try:
+        data = request.get_json()
+        if not data:
+            return validation_error_response('Request body required')
+        result = MultiTenantExecutor.execute_procedure('proc_add_shift_definition', {
+            'shift_name':               data.get('shift_name'),
+            'start_time':               data.get('start_time'),
+            'end_time':                 data.get('end_time'),
+            'is_night_shift':           data.get('is_night_shift', 0),
+            'checkin_grace_minutes':    data.get('checkin_grace_minutes', 15),
+            'checkout_grace_minutes':   data.get('checkout_grace_minutes', 15),
+            'half_day_minimum_hours':   data.get('half_day_minimum_hours', 6.0),
+            'overtime_buffer_minutes':  data.get('overtime_buffer_minutes', 60),
+        })
+        if result['success'] and result['data']:
+            r = result['data'][0]
+            if r.get('success') == 1:
+                return success_response(message=r.get('message'), data={'shift_id': r.get('shift_id')})
+            return error_response(r.get('message', 'Failed'), status_code=400)
+        return error_response('Failed to create shift', status_code=500)
+    except Exception as e:
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/shifts/<int:shift_id>', methods=['PUT'])
+@company_required
+@hr_required
+def update_shift(shift_id):
+    """Update an existing shift definition"""
+    try:
+        data = request.get_json()
+        if not data:
+            return validation_error_response('Request body required')
+        result = MultiTenantExecutor.execute_procedure('proc_update_shift_definition', {
+            'shift_id':                 shift_id,
+            'shift_name':               data.get('shift_name'),
+            'start_time':               data.get('start_time'),
+            'end_time':                 data.get('end_time'),
+            'is_night_shift':           data.get('is_night_shift', 0),
+            'checkin_grace_minutes':    data.get('checkin_grace_minutes', 15),
+            'checkout_grace_minutes':   data.get('checkout_grace_minutes', 15),
+            'half_day_minimum_hours':   data.get('half_day_minimum_hours', 6.0),
+            'overtime_buffer_minutes':  data.get('overtime_buffer_minutes', 60),
+        })
+        if result['success'] and result['data']:
+            r = result['data'][0]
+            if r.get('success') == 1:
+                return success_response(message=r.get('message'))
+            return error_response(r.get('message', 'Failed'), status_code=400)
+        return error_response('Failed to update shift', status_code=500)
+    except Exception as e:
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/shifts/assign', methods=['POST'])
+@company_required
+@hr_required
+def assign_shift():
+    """Assign a shift to an employee"""
+    try:
+        from flask_jwt_extended import get_jwt_identity
+        data = request.get_json()
+        if not data:
+            return validation_error_response('Request body required')
+        result = MultiTenantExecutor.execute_procedure('proc_assign_employee_shift', {
+            'employee_id':    data.get('employee_id'),
+            'shift_id':       data.get('shift_id'),
+            'effective_from': data.get('effective_from'),
+            'assigned_by':    data.get('assigned_by'),
+        })
+        if result['success'] and result['data']:
+            r = result['data'][0]
+            if r.get('success') == 1:
+                return success_response(message=r.get('message'))
+            return error_response(r.get('message', 'Failed'), status_code=400)
+        return error_response('Failed to assign shift', status_code=500)
+    except Exception as e:
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/shifts/employee/<int:employee_id>', methods=['GET'])
+@company_required
+@hr_required
+def get_employee_shift(employee_id):
+    """Get current shift assignment for an employee"""
+    try:
+        result = MultiTenantExecutor.execute_procedure(
+            'proc_get_employee_current_shift', {'employee_id': employee_id}
+        )
+        if result['success']:
+            data = result['data'][0] if result['data'] else None
+            if data:
+                if data.get('start_time') and not isinstance(data['start_time'], str):
+                    data['start_time'] = str(data['start_time'])
+                if data.get('end_time') and not isinstance(data['end_time'], str):
+                    data['end_time'] = str(data['end_time'])
+            return success_response(message='Shift retrieved', data={'assignment': data})
+        return error_response('Failed to retrieve shift', status_code=500)
+    except Exception as e:
+        return success_response(message='No shift assigned', data={'assignment': None})
+
+
+# ============================================================================
+# FACTORY ATTENDANCE PROCESSING
+# ============================================================================
+
+@attendance_bp.route('/factory/process', methods=['POST'])
+@company_required
+@hr_required
+def process_factory_attendance():
+    """
+    Manually trigger factory attendance generation for a date range.
+    HR uses this to reprocess attendance after shift changes or corrections.
+    """
+    try:
+        data = request.get_json() or {}
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        if not start_date:
+            return validation_error_response('start_date is required')
+        if not end_date:
+            end_date = start_date
+
+        result = MultiTenantExecutor.execute_procedure(
+            'proc_generate_factory_attendance',
+            {'start_date': start_date, 'end_date': end_date}
+        )
+        if result['success'] and result['data']:
+            r = result['data'][0]
+            return success_response(message=r.get('message', 'Attendance processed'))
+        return error_response('Failed to process attendance', status_code=500)
+    except Exception as e:
+        current_app.logger.error(f"Factory attendance process error: {str(e)}")
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/factory/process-yesterday', methods=['POST'])
+def process_yesterday_factory_attendance():
+    """
+    Internal endpoint called by Windows Task Scheduler every night.
+    Protected by gateway secret instead of JWT.
+    """
+    import os
+    secret = request.headers.get('X-Gateway-Secret', '')
+    if secret != os.environ.get('GATEWAY_SECRET', 'change-this-secret'):
+        return error_response('Unauthorized', status_code=401)
+
+    try:
+        from datetime import date, timedelta
+        yesterday = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        # Process for all active companies
+        from app.database.master_db import master_db
+        from app.database.multi_tenant_connection import connection_manager
+        from app.middleware.company_context import get_company_code
+        from flask import g
+
+        companies = master_db.execute_procedure('proc_mt_get_all_companies', {'status_filter': 'ACTIVE'})
+
+        processed = []
+        for company in companies:
+            company_code = company.get('company_code')
+            try:
+                conn = connection_manager.get_company_connection(company_code)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "EXEC proc_generate_factory_attendance @start_date=?, @end_date=?",
+                    (yesterday, yesterday)
+                )
+                conn.commit()
+                connection_manager.return_connection(company_code, conn)
+                processed.append(company_code)
+            except Exception as ce:
+                current_app.logger.error(f"Failed for {company_code}: {ce}")
+
+        return success_response(
+            message=f'Processed {len(processed)} companies for {yesterday}',
+            data={'companies': processed, 'date': yesterday}
+        )
+    except Exception as e:
+        current_app.logger.error(f"Scheduled process error: {str(e)}")
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/shifts/remove', methods=['POST'])
+@company_required
+@hr_required
+def remove_employee_shift():
+    """Remove shift assignment from an employee"""
+    try:
+        data = request.get_json()
+        if not data or not data.get('employee_id'):
+            return validation_error_response('employee_id is required')
+        result = MultiTenantExecutor.execute_procedure(
+            'proc_remove_employee_shift',
+            {'employee_id': data.get('employee_id')}
+        )
+        if result['success'] and result['data']:
+            r = result['data'][0]
+            if r.get('success') == 1:
+                return success_response(message=r.get('message'))
+            return error_response(r.get('message', 'Failed'), status_code=400)
+        return error_response('Failed to remove shift', status_code=500)
+    except Exception as e:
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/factory/pending', methods=['GET'])
+@company_required
+@hr_required
+def get_pending_factory_attendance():
+    """Get all PENDING attendance records needing HR correction"""
+    try:
+        days_back = request.args.get('days_back', 30, type=int)
+        result = MultiTenantExecutor.execute_procedure(
+            'proc_get_pending_factory_attendance',
+            {'days_back': days_back}
+        )
+        if result['success']:
+            return success_response(
+                message='Pending records retrieved',
+                data={'pending': result['data'], 'count': len(result['data'])}
+            )
+        return error_response('Failed to retrieve pending records', status_code=500)
+    except Exception as e:
+        return error_response(str(e), status_code=500)
+
+
+@attendance_bp.route('/reports/summary', methods=['GET'])
+@company_required
+@hr_required
+def get_attendance_summary_report():
+    """Get attendance summary report in grid format"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        department = request.args.get('department')
+        employee_type = request.args.get('employee_type')
+        
+        if not start_date or not end_date:
+            return validation_error_response('start_date and end_date are required')
+        
+        params = {
+            'start_date': start_date,
+            'end_date': end_date
+        }
+        
+        if department and department != 'All':
+            params['department'] = department
+        
+        if employee_type and employee_type != 'All':
+            params['employee_type'] = employee_type
+        
+        result = MultiTenantExecutor.execute_procedure(
+            'proc_get_attendance_summary_report',
+            params
+        )
+        
+        if result['success']:
+            return success_response(
+                message='Summary report retrieved',
+                data={'records': result['data']}
+            )
+        return error_response('Failed to retrieve summary report', status_code=500)
+    except Exception as e:
+        return error_response(str(e), status_code=500)

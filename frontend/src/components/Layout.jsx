@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 
 const Layout = ({ children }) => {
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -16,12 +17,21 @@ const Layout = ({ children }) => {
         setMobileOpen(false);
     };
 
+    const handleSidebarCollapse = () => {
+        setSidebarCollapsed(!sidebarCollapsed);
+    };
+
     return (
         <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-            <Header onMenuClick={handleDrawerToggle} />
+            <Header 
+                onMenuClick={handleDrawerToggle}
+                onSidebarCollapse={handleSidebarCollapse}
+                sidebarCollapsed={sidebarCollapsed}
+            />
             <Sidebar 
                 mobileOpen={mobileOpen} 
-                onMobileClose={handleMobileClose} 
+                onMobileClose={handleMobileClose}
+                collapsed={sidebarCollapsed}
             />
             <Box
                 component="main"

@@ -275,11 +275,18 @@ def get_hr_dashboard_statistics():
             except Exception:
                 pending_approvals = 0
 
+            # Absent only makes sense once the day is fully over (past date)
+            # For today, only show what's actually marked in attendance_daily records
+            if report_date < date.today():
+                absent_today = max(0, total_employees - present_today - on_leave_today)
+            else:
+                absent_today = 0
+
             dashboard_data = {
                 "total_employees": total_employees,
                 "present_today": present_today,
                 "on_leave_today": on_leave_today,
-                "absent_today": max(0, total_employees - present_today - on_leave_today),
+                "absent_today": absent_today,
                 "attendance_percentage": round(min(attendance_percentage, 100.0), 1),
                 "pending_approvals": pending_approvals,
                 "payroll_amount": "0",

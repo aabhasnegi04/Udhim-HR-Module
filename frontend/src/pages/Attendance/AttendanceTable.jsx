@@ -29,6 +29,10 @@ import {
     ViewModule as ViewModuleIcon,
     ViewList as ViewListIcon,
 } from '@mui/icons-material';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import dayjs from 'dayjs';
 import attendanceService from '../../services/attendanceService';
 import EditAttendanceDialog from '../../components/EditAttendanceDialog';
 import { useAuth } from '../../context/AuthContext';
@@ -42,7 +46,11 @@ const AttendanceTable = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [departmentFilter, setDepartmentFilter] = useState('All');
-    const [dateRange, setDateRange] = useState('today'); // 'today', 'week', 'month'
+    const [employeeTypeFilter, setEmployeeTypeFilter] = useState('All');
+    const [dateRange, setDateRange] = useState('today'); // 'today', 'month', 'custom'
+    const [selectedMonth, setSelectedMonth] = useState(dayjs());
+    const [customStartDate, setCustomStartDate] = useState(dayjs().startOf('month'));
+    const [customEndDate, setCustomEndDate] = useState(dayjs());
     
     // Default view: table/list for desktop (md+), cards/grid for mobile
     const getDefaultViewMode = () => {
@@ -53,6 +61,7 @@ const AttendanceTable = () => {
     const [attendanceData, setAttendanceData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [availableEmploymentTypes, setAvailableEmploymentTypes] = useState([]);
     
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -72,7 +81,7 @@ const AttendanceTable = () => {
     // Load attendance data
     useEffect(() => {
         loadAttendanceData();
-    }, [dateRange, currentView]); // Add currentView as dependency
+    }, [dateRange, selectedMonth, customStartDate, customEndDate, currentView]);
 
     const loadAttendanceData = async () => {
         try {
@@ -80,31 +89,37 @@ const AttendanceTable = () => {
             setError('');
             
             // Calculate date range based on selection
-            const endDate = new Date();
-            const startDate = new Date();
+            const today = dayjs();
+            let startDate, endDate;
             
             if (dateRange === 'today') {
                 // Today only
-                startDate.setHours(0, 0, 0, 0);
-            } else if (dateRange === 'week') {
-                // Last 7 days
-                startDate.setDate(startDate.getDate() - 7);
-            } else if (dateRange === 'month') {
-                // Last 30 days
-                startDate.setDate(startDate.getDate() - 30);
+                startDate = today;
+                endDate = today;
+            } else if (dateRange === 'month' && selectedMonth) {
+                // Specific month selected
+                startDate = selectedMonth.startOf('month');
+                endDate = selectedMonth.endOf('month');
+            } else if (dateRange === 'custom' && customStartDate && customEndDate) {
+                // Custom date range
+                startDate = customStartDate;
+                endDate = customEndDate;
+            } else {
+                // Default to today
+                startDate = today;
+                endDate = today;
             }
             
             // For employees in Employee view, pass their employee_id to only see their own records
             // For HR/Manager views, don't pass employee_id to see all records
             let employeeId = null;
-            // Load attendance data based on current view
             if (isEmployeeView()) {
                 employeeId = user.employee_id;
             }
             
             const result = await attendanceService.getAttendanceByDateRange(
-                startDate.toISOString().split('T')[0],
-                endDate.toISOString().split('T')[0],
+                startDate.format('YYYY-MM-DD'),
+                endDate.format('YYYY-MM-DD'),
                 employeeId
             );
             
@@ -113,10 +128,11 @@ const AttendanceTable = () => {
                 const transformedData = result.data.map((record, index) => ({
                     id: record.attendance_id || index,
                     employeeId: record.employee_code || record.employee_id,
-                    employeeNumericId: record.employee_id, // Store numeric ID for API calls
+                    employeeNumericId: record.employee_id,
                     name: record.employee_name || 'Unknown',
                     avatar: (record.employee_name || 'U').charAt(0),
                     department: record.department || 'N/A',
+                    employeeType: record.employment_type || 'N/A',
                     date: record.attendance_date,
                     checkIn: record.first_check_in || '-',
                     checkOut: record.last_check_out || '-',
@@ -125,10 +141,14 @@ const AttendanceTable = () => {
                     notes: record.notes || ''
                 }));
                 
+                const uniqueTypes = [...new Set(transformedData.map(r => r.employeeType).filter(t => t && t !== 'N/A'))];
+                console.log('Available employment types:', uniqueTypes);
+                setAvailableEmploymentTypes(uniqueTypes);
+                
                 setAttendanceData(transformedData);
                 
                 if (transformedData.length === 0) {
-                    setError('No attendance records found. Start marking attendance to see data here.');
+                    setError('No attendance records found for the selected date range.');
                 }
             } else {
                 setError(result.error || 'Failed to load attendance data');
@@ -177,7 +197,11 @@ const AttendanceTable = () => {
         const matchesStatus = statusFilter === 'All' || record.status.toUpperCase() === statusFilter.toUpperCase();
         const matchesDepartment = departmentFilter === 'All' || record.department === departmentFilter;
         
-        return matchesSearch && matchesStatus && matchesDepartment;
+        // Case-insensitive employee type matching
+        const matchesEmployeeType = employeeTypeFilter === 'All' || 
+                                   (record.employeeType && record.employeeType.toLowerCase() === employeeTypeFilter.toLowerCase());
+        
+        return matchesSearch && matchesStatus && matchesDepartment && matchesEmployeeType;
     });
 
     const paginatedData = filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
@@ -394,70 +418,127 @@ const AttendanceTable = () => {
                 
                 {!loading && (
                     <>
-                        <Box sx={{ 
-                            display: 'flex', 
-                            gap: { xs: 1, sm: 2 }, 
-                            alignItems: 'end',
-                            flexDirection: { xs: 'column', sm: 'row' },
-                            mb: 2
-                        }}>
-                            <TextField
-                                placeholder="Search by name or employee ID..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
-                                slotProps={{
-                                    input: {
-                                        startAdornment: <SearchIcon sx={{ mr: 1, color: 'action.active' }} />
-                                    }
-                                }}
-                        size="small"
-                    />
-                    
-                    <TextField
-                        select
-                        label="Date Range"
-                        value={dateRange}
-                        onChange={(e) => setDateRange(e.target.value)}
-                        sx={{ minWidth: { xs: '100%', sm: 120 } }}
-                        size="small"
-                    >
-                        <MenuItem value="today">Today</MenuItem>
-                        <MenuItem value="week">Last 7 Days</MenuItem>
-                        <MenuItem value="month">Last 30 Days</MenuItem>
-                    </TextField>
-                    
-                    <TextField
-                        select
-                        label="Status"
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        sx={{ minWidth: { xs: '100%', sm: 120 } }}
-                        size="small"
-                    >
-                        <MenuItem value="All">All Status</MenuItem>
-                        <MenuItem value="Present">Present</MenuItem>
-                        <MenuItem value="Absent">Absent</MenuItem>
-                        <MenuItem value="Late">Late</MenuItem>
-                        <MenuItem value="Half Day">Half Day</MenuItem>
-                        <MenuItem value="Work From Home">Work From Home</MenuItem>
-                    </TextField>
-                    
-                    <TextField
-                        select
-                        label="Department"
-                        value={departmentFilter}
-                        onChange={(e) => setDepartmentFilter(e.target.value)}
-                        sx={{ minWidth: { xs: '100%', sm: 140 } }}
-                        size="small"
-                    >
-                        <MenuItem value="All">All Departments</MenuItem>
-                        <MenuItem value="Engineering">Engineering</MenuItem>
-                        <MenuItem value="Sales">Sales</MenuItem>
-                        <MenuItem value="Marketing">Marketing</MenuItem>
-                        <MenuItem value="HR">HR</MenuItem>
-                    </TextField>
-                </Box>
+                        <LocalizationProvider dateAdapter={AdapterDayjs}>
+                            <Box sx={{ 
+                                display: 'flex', 
+                                gap: { xs: 1, sm: 2 }, 
+                                alignItems: 'end',
+                                flexDirection: { xs: 'column', sm: 'row' },
+                                mb: 2
+                            }}>
+                                <TextField
+                                    placeholder="Search by name or employee ID..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
+                                    slotProps={{
+                                        input: {
+                                            startAdornment: <SearchIcon sx={{ mr: 1, color: 'action.active' }} />
+                                        }
+                                    }}
+                                    size="small"
+                                />
+                                
+                                <TextField
+                                    select
+                                    label="Date Range"
+                                    value={dateRange}
+                                    onChange={(e) => setDateRange(e.target.value)}
+                                    sx={{ minWidth: { xs: '100%', sm: 120 } }}
+                                    size="small"
+                                >
+                                    <MenuItem value="today">Today</MenuItem>
+                                    <MenuItem value="month">Month</MenuItem>
+                                    <MenuItem value="custom">Date Range</MenuItem>
+                                </TextField>
+                                
+                                {dateRange === 'month' && (
+                                    <DatePicker
+                                        label="Select Month"
+                                        views={['year', 'month']}
+                                        value={selectedMonth}
+                                        onChange={(newValue) => setSelectedMonth(newValue)}
+                                        slotProps={{
+                                            textField: {
+                                                size: 'small',
+                                                sx: { minWidth: { xs: '100%', sm: 180 } }
+                                            }
+                                        }}
+                                    />
+                                )}
+                                
+                                {dateRange === 'custom' && (
+                                    <>
+                                        <DatePicker
+                                            label="From Date"
+                                            value={customStartDate}
+                                            onChange={(newValue) => setCustomStartDate(newValue)}
+                                            slotProps={{
+                                                textField: {
+                                                    size: 'small',
+                                                    sx: { minWidth: { xs: '100%', sm: 150 } }
+                                                }
+                                            }}
+                                        />
+                                        <DatePicker
+                                            label="To Date"
+                                            value={customEndDate}
+                                            onChange={(newValue) => setCustomEndDate(newValue)}
+                                            slotProps={{
+                                                textField: {
+                                                    size: 'small',
+                                                    sx: { minWidth: { xs: '100%', sm: 150 } }
+                                                }
+                                            }}
+                                        />
+                                    </>
+                                )}
+                                
+                                <TextField
+                                    select
+                                    label="Status"
+                                    value={statusFilter}
+                                    onChange={(e) => setStatusFilter(e.target.value)}
+                                    sx={{ minWidth: { xs: '100%', sm: 120 } }}
+                                    size="small"
+                                >
+                                    <MenuItem value="All">All Status</MenuItem>
+                                    <MenuItem value="Present">Present</MenuItem>
+                                    <MenuItem value="Absent">Absent</MenuItem>
+                                    <MenuItem value="Late">Late</MenuItem>
+                                    <MenuItem value="Half Day">Half Day</MenuItem>
+                                    <MenuItem value="Work From Home">Work From Home</MenuItem>
+                                </TextField>
+                                
+                                <TextField
+                                    select
+                                    label="Department"
+                                    value={departmentFilter}
+                                    onChange={(e) => setDepartmentFilter(e.target.value)}
+                                    sx={{ minWidth: { xs: '100%', sm: 140 } }}
+                                    size="small"
+                                >
+                                    <MenuItem value="All">All Departments</MenuItem>
+                                    <MenuItem value="Engineering">Engineering</MenuItem>
+                                    <MenuItem value="Sales">Sales</MenuItem>
+                                    <MenuItem value="Marketing">Marketing</MenuItem>
+                                    <MenuItem value="HR">HR</MenuItem>
+                                </TextField>
+                                
+                                <TextField
+                                    select
+                                    label="Employee Type"
+                                    value={employeeTypeFilter}
+                                    onChange={(e) => setEmployeeTypeFilter(e.target.value)}
+                                    sx={{ minWidth: { xs: '100%', sm: 140 } }}
+                                    size="small"
+                                >
+                                    <MenuItem value="All">All Types</MenuItem>
+                                    <MenuItem value="Office">Office</MenuItem>
+                                    <MenuItem value="Factory">Factory</MenuItem>
+                                </TextField>
+                            </Box>
+                        </LocalizationProvider>
                 
                 <Box sx={{ 
                     display: 'flex', 

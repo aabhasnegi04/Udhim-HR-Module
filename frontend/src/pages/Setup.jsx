@@ -12,6 +12,7 @@ import {
     Event as HolidayIcon,
     BeachAccess as LeaveIcon,
     Storage as MasterDataIcon,
+    Schedule as ShiftIcon,
 } from '@mui/icons-material';
 import { AuthContext } from '../context/AuthContext';
 import { useProfileSwitching } from '../context/ProfileSwitchingContext';
@@ -22,6 +23,7 @@ import CompanySettings from './Setup/CompanySettings';
 import HolidayCalendar from './Admin/HolidayCalendar';
 import LeaveTypes from './Setup/LeaveTypes';
 import MasterData from './Admin/MasterData';
+import Shifts from './Setup/Shifts';
 
 const Setup = () => {
     const { user } = useContext(AuthContext);
@@ -41,6 +43,7 @@ const Setup = () => {
                 { label: 'Master Data',       icon: <MasterDataIcon />,  component: <MasterData /> },
                 { label: 'Leave Types',       icon: <LeaveIcon />,       component: <LeaveTypes /> },
                 { label: 'Holiday Calendar',  icon: <HolidayIcon />,     component: <HolidayCalendar /> },
+                { label: 'Shifts',            icon: <ShiftIcon />,       component: <Shifts /> },
                 { label: 'Company Policies',  icon: <PolicyIcon />,      component: <CompanyPolicies /> },
             ];
         }

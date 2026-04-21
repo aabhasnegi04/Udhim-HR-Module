@@ -19,6 +19,7 @@ def create_app(config_class=Config):
         "http://localhost:5173",        # Local Vite dev server
         "https://hr.udhim.com",         # UDHIM_HR client frontend
         "https://hrlaminar.vdfg.in",    # ud_pond_hr (Laminar) client frontend
+        "https://hrfine.vdfg.in",       # Anup Finewood client frontend
     ]
     
     CORS(app, 
@@ -37,6 +38,7 @@ def create_app(config_class=Config):
             res = Response()
             origin = request.headers.get('Origin', '')
             allowed = ['https://hr.udhim.com', 'https://hrlaminar.vdfg.in',
+                       'https://hrfine.vdfg.in',
                        'http://localhost:5173', 'http://localhost:3000']
             if origin in allowed:
                 res.headers['Access-Control-Allow-Origin'] = origin
@@ -66,7 +68,8 @@ def create_app(config_class=Config):
     from app.documents.employee_doc_routes import employee_docs_bp
     from app.notifications.routes import notifications_bp
     from app.offboarding.routes import offboarding_bp
-    
+    from app.biometric.routes import biometric_bp
+
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(multi_tenant_auth_bp, url_prefix='/auth/multi-tenant')
     app.register_blueprint(employees_bp, url_prefix='/employees')
@@ -80,6 +83,7 @@ def create_app(config_class=Config):
     app.register_blueprint(employee_docs_bp, url_prefix='/documents')
     app.register_blueprint(notifications_bp, url_prefix='/notifications')
     app.register_blueprint(offboarding_bp, url_prefix='/offboarding')
+    app.register_blueprint(biometric_bp, url_prefix='/biometric')
     
     @app.route('/health')
     def health_check():
@@ -93,6 +97,7 @@ def create_app(config_class=Config):
         res = Response()
         origin = request.headers.get('Origin', '')
         allowed = ['https://hr.udhim.com', 'https://hrlaminar.vdfg.in',
+                   'https://hrfine.vdfg.in',
                    'http://localhost:5173', 'http://localhost:3000']
         if origin in allowed:
             res.headers['Access-Control-Allow-Origin'] = origin

@@ -1,11 +1,17 @@
-# Exclude specific project folders
-backend-anotherproject/
-backend_deploy/
+# Only include frontend, backend, and .gitignore - exclude everything else at root
+/*
+!/frontend/
+!/backend/
+!/.gitignore
+
+# Exclude specific folders within backend
 backend/backend_deploy/
 backend/database_scripts/
 backend/scripts&sql/
-employee_pfp/
-markdown_files/
+
+# Exclude Excel files in backend
+backend/**/*.xlsx
+backend/**/*.xls
 
 # Kiro and IDE folders
 .kiro/

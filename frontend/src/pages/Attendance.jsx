@@ -19,6 +19,7 @@ import {
     Login as CheckInIcon,
     Logout as CheckOutIcon,
     Warning as WarningIcon,
+    PendingActions as PendingIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useProfileSwitching } from '../context/ProfileSwitchingContext';
@@ -34,6 +35,7 @@ import HolidayManagement from './Attendance/HolidayManagement';
 import AttendanceReports from './Attendance/AttendanceReports';
 import AttendanceCheckIn from './Attendance/AttendanceCheckIn';
 import ErrorBoundary from '../components/ErrorBoundary';
+import PendingAttendance from './Attendance/PendingAttendance';
 
 const Attendance = () => {
     const { user, isEmployeeActive } = useAuth();
@@ -70,6 +72,7 @@ const Attendance = () => {
             return [
                 { label: 'Overview', icon: <DashboardIcon />, component: AttendanceDashboard },
                 { label: 'Records', icon: <CalendarIcon />, component: AttendanceTable },
+                { label: 'Pending', icon: <PendingIcon />, component: PendingAttendance },
                 { label: 'Mark Attendance', icon: <AddIcon />, component: ManualAttendance },
                 { label: 'Bulk Upload', icon: <UploadIcon />, component: BulkUpload },
                 { label: 'Corrections', icon: <ScheduleIcon />, component: Regularization },

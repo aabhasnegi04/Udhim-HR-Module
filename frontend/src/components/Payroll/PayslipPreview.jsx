@@ -28,7 +28,7 @@ const PayslipPreview = ({ payslipData }) => {
             {/* Company Header */}
             <Box sx={{ textAlign: 'center', mb: 3, pb: 2, borderBottom: 2, borderColor: 'primary.main' }}>
                 <Typography variant="h4" sx={{ fontWeight: 700, color: 'primary.main', mb: 1 }}>
-                    UDHIM TECHNOLOGIES
+                    {import.meta.env.VITE_COMPANY_NAME || 'Company'}
                 </Typography>
                 <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
                     SALARY SLIP

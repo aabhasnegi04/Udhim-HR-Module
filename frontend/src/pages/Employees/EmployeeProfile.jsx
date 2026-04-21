@@ -26,6 +26,7 @@ import {
     Description as DocumentsIcon,
     Mail as LettersIcon,
     Security as StatusIcon,
+    Schedule as ShiftIcon,
 } from '@mui/icons-material';
 
 // Import tab components
@@ -38,6 +39,7 @@ import SalaryPreview from '../../components/Employee/SalaryPreview';
 import DocumentsTab from '../../components/Employee/DocumentsTab';
 import LettersTab from '../../components/Employee/LettersTab';
 import StatusManagement from '../../components/Employee/StatusManagement';
+import ShiftAssignment from '../../components/Employee/ShiftAssignment';
 
 // Import employee service
 import employeeService from '../../services/employeeService';
@@ -321,6 +323,7 @@ const EmployeeProfile = () => {
         { label: 'Personal Info', icon: <PersonIcon /> },
         { label: 'Official Info', icon: <BusinessIcon /> },
         { label: 'Status Management', icon: <StatusIcon /> },
+        { label: 'Shift', icon: <ShiftIcon /> },
         { label: 'Attendance', icon: <AttendanceIcon /> },
         { label: 'Leave', icon: <LeaveIcon /> },
         { label: 'Salary', icon: <SalaryIcon /> },
@@ -457,13 +460,12 @@ const EmployeeProfile = () => {
                             fontWeight: 500,
                         },
                         ...(isEditing && {
-                            '& .MuiTab-root:nth-of-type(n+3)': {
+                            '& .MuiTab-root:nth-of-type(n+5)': {
                                 opacity: 0.4,
                                 pointerEvents: 'none',
                                 color: 'text.disabled',
                             }
-                        })
-                    }}
+                        })                    }}
                 >
                     {tabs.map((tab, index) => (
                         <Tab
@@ -471,6 +473,7 @@ const EmployeeProfile = () => {
                             label={tab.label}
                             icon={tab.icon}
                             iconPosition="start"
+                            disabled={isEditing && index >= 4}
                             sx={{
                                 '& .MuiTab-iconWrapper': {
                                     mr: 1,
@@ -507,18 +510,21 @@ const EmployeeProfile = () => {
                     />
                 </TabPanel>
                 <TabPanel value={activeTab} index={3}>
-                    <AttendancePreview employee={employee} />
+                    <ShiftAssignment employee={employee} />
                 </TabPanel>
                 <TabPanel value={activeTab} index={4}>
-                    <LeavePreview employee={employee} />
+                    <AttendancePreview employee={employee} />
                 </TabPanel>
                 <TabPanel value={activeTab} index={5}>
-                    <SalaryPreview employee={employee} />
+                    <LeavePreview employee={employee} />
                 </TabPanel>
                 <TabPanel value={activeTab} index={6}>
-                    <DocumentsTab employee={employee} />
+                    <SalaryPreview employee={employee} />
                 </TabPanel>
                 <TabPanel value={activeTab} index={7}>
+                    <DocumentsTab employee={employee} />
+                </TabPanel>
+                <TabPanel value={activeTab} index={8}>
                     <LettersTab employee={employee} />
                 </TabPanel>
             </Paper>

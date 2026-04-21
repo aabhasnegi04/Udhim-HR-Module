@@ -82,14 +82,13 @@ const managerMenuItems = [
     { id: 'documents', label: 'Documents', icon: <DocumentsIcon />, path: '/documents' },
 ];
 
-const Sidebar = ({ mobileOpen, onMobileClose }) => {
+const Sidebar = ({ mobileOpen, onMobileClose, collapsed = false }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const { getMenuItems, user } = useAuth();
     const { currentView, isHRView, isManagerView, isEmployeeView } = useProfileSwitching();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-    const [collapsed, setCollapsed] = useState(false);
 
     // Get menu items based on current view
     const getMenuItemsForCurrentView = () => {
@@ -114,10 +113,6 @@ const Sidebar = ({ mobileOpen, onMobileClose }) => {
         }
     };
 
-    const toggleCollapse = () => {
-        setCollapsed(!collapsed);
-    };
-
     const mobileDrawer = (
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             {/* Mobile Header */}
@@ -131,8 +126,8 @@ const Sidebar = ({ mobileOpen, onMobileClose }) => {
             }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <img
-                        src="https://www.udhim.com/logo.png"
-                        alt="Udhim Logo"
+                        src={import.meta.env.VITE_COMPANY_LOGO || "https://www.udhim.com/logo.png"}
+                        alt={import.meta.env.VITE_COMPANY_NAME || 'HRMS'}
                         style={{
                             height: '40px',
                             width: 'auto',
@@ -204,18 +199,7 @@ const Sidebar = ({ mobileOpen, onMobileClose }) => {
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <Toolbar />
 
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, py: 0.5, mt: 3 }}>
-                <IconButton onClick={toggleCollapse} size="small">
-                    <ChevronLeftIcon
-                        sx={{
-                            transform: collapsed ? 'rotate(180deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.3s',
-                        }}
-                    />
-                </IconButton>
-            </Box>
-
-            <List sx={{ px: 1, mt: 3 }}>
+            <List sx={{ px: 1, mt: 1 }}>
                 {filteredMenuItems.map((item) => {
                     const isActive = location.pathname === item.path;
                     return (

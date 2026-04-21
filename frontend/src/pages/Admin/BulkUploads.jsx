@@ -16,13 +16,14 @@ import {
     Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import adminService from '../../services/adminService';
+import AttendanceBulkUpload from '../Attendance/BulkUpload';
 
 const MODULE_CONFIG = {
     EMPLOYEES: {
         label: 'Employee Master',
         templateType: 'employee-master',
-        description: 'Bulk upload employee data with dropdown validation for departments, designations, and more',
-        requiredFields: ['Employee ID', 'First Name', 'Last Name', 'Email', 'Department', 'Designation', 'Date of Joining'],
+        description: 'Bulk upload employee data with dropdown validation for departments, designations, and more. Email is optional for factory workers.',
+        requiredFields: ['Employee ID', 'First Name', 'Last Name', 'Department', 'Designation', 'Date of Joining'],
     },
     EMPLOYEE_IMAGES: {
         label: 'Employee Images',
@@ -164,6 +165,26 @@ const BulkUploads = () => {
     };
 
     const config = MODULE_CONFIG[selectedModule];
+
+    // Attendance module uses the dedicated BulkUpload component
+    if (selectedModule === 'ATTENDANCE') {
+        return (
+            <Box>
+                <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <FormControl sx={{ minWidth: 220 }}>
+                        <InputLabel>Module</InputLabel>
+                        <Select value={selectedModule} label="Module"
+                            onChange={e => { setSelectedModule(e.target.value); setUploadResult(null); }}>
+                            {Object.entries(MODULE_CONFIG).map(([key, cfg]) => (
+                                <MenuItem key={key} value={key}>{cfg.label}</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </Box>
+                <AttendanceBulkUpload />
+            </Box>
+        );
+    }
 
     return (
         <Box>

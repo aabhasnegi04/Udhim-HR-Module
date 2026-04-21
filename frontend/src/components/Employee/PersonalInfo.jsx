@@ -6,6 +6,7 @@ import {
     Divider,
     TextField,
     MenuItem,
+    Alert,
 } from '@mui/material';
 import {
     Person as PersonIcon,
@@ -164,12 +165,17 @@ const PersonalInfo = ({ employee, isEditing, onFieldChange, genderOptions = [] }
                         />
                         <InfoItem
                             icon={<EmailIcon />}
-                            label="Email Address"
+                            label="Email Address (Optional)"
                             value={employee.email}
                             isEditing={isEditing}
                             field="email"
                             onFieldChange={onFieldChange}
                         />
+                        {isEditing && !employee.email && (
+                            <Alert severity="info" sx={{ mt: 2 }}>
+                                Adding an email will automatically create a login account for this employee with role based on their designation.
+                            </Alert>
+                        )}
                     </Grid>
                 </Grid>
 

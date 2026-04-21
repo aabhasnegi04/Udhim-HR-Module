@@ -209,17 +209,19 @@ const AddEmployee = () => {
         }
         
         // Basic validation
-        if (!formData.first_name || !formData.last_name || !formData.email || 
+        if (!formData.first_name || !formData.last_name || 
             !formData.department || !formData.designation) {
             setError('Please fill in all required fields');
             return;
         }
 
-        // Email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(formData.email)) {
-            setError('Please enter a valid email address');
-            return;
+        // Email validation (only if provided)
+        if (formData.email && formData.email.trim() !== '') {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(formData.email)) {
+                setError('Please enter a valid email address');
+                return;
+            }
         }
 
         try {
@@ -533,13 +535,13 @@ const AddEmployee = () => {
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
                             <TextField
                                 fullWidth
-                                label="Email Address"
+                                label="Email Address (Optional)"
                                 name="email"
                                 type="email"
                                 value={formData.email}
                                 onChange={handleInputChange}
-                                required
                                 placeholder="employee@company.com"
+                                helperText="Leave empty for factory workers. Can be added later to create login account."
                             />
                         </Box>
                         <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>

@@ -1,329 +1,296 @@
 """
-Bulk attendance upload service
+Biometric Device Bulk Upload
+Parses the raw punch log exported from the biometric device via USB.
+
+Expected Excel format (from device):
+    ID | Name | Time
+    2  | AABHAS NEGI | 2026/04/08 17:29:06
+
+After inserting raw logs, triggers proc_generate_factory_attendance
+for the date range found in the file.
 """
-import pandas as pd
-from datetime import datetime, time
-from flask import current_app
-from app.database.connection import DatabaseConnection
+
+import os
+import logging
+import tempfile
+from datetime import datetime
+from flask import g
+import openpyxl
+import xlrd
+
+from app.database.multi_tenant_executor import MultiTenantExecutor
+from app.database.multi_tenant_connection import connection_manager
+
+logger = logging.getLogger(__name__)
 
 
 class BulkAttendanceUpload:
-    """Handle bulk attendance upload from Excel files"""
-    
-    REQUIRED_COLUMNS = ['Employee ID', 'Date', 'Check-in Time', 'Check-out Time', 'Status']
-    VALID_STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'WFH', 'HOLIDAY']
-    
+
     @staticmethod
-    def validate_and_process_file(file_path):
+    def validate_and_process_file(file_path: str) -> dict:
         """
-        Validate and process Excel file
-        
-        Returns:
-            dict: {
-                'success': bool,
-                'total_rows': int,
-                'successful_rows': int,
-                'failed_rows': int,
-                'errors': list,
-                'message': str
-            }
+        Parse device USB export and insert into attendance_raw_logs.
+        Then trigger factory attendance generation for the date range.
         """
+        rows = []
+        errors = []
+
+        # --- Parse file ---
         try:
-            # Read Excel file
-            df = pd.read_excel(file_path)
-            
-            current_app.logger.info(f"Excel file loaded. Columns found: {list(df.columns)}")
-            current_app.logger.info(f"Total rows in file: {len(df)}")
-            
-            # Normalize column names - remove content in parentheses
-            df.columns = df.columns.str.strip()
-            df.columns = df.columns.str.replace(r'\s*\([^)]*\)\s*', '', regex=True)
-            df.columns = df.columns.str.strip()
-            
-            current_app.logger.info(f"Normalized columns: {list(df.columns)}")
-            
-            # Validate columns
-            missing_columns = [col for col in BulkAttendanceUpload.REQUIRED_COLUMNS if col not in df.columns]
-            if missing_columns:
-                return {
-                    'success': False,
-                    'message': f"Missing required columns: {', '.join(missing_columns)}. Found columns: {', '.join(df.columns)}",
-                    'total_rows': 0,
-                    'successful_rows': 0,
-                    'failed_rows': 0,
-                    'errors': []
-                }
-            
-            total_rows = len(df)
-            successful_rows = 0
-            failed_rows = 0
-            errors = []
-            
-            # Get valid employee IDs from database
-            valid_employee_ids = BulkAttendanceUpload._get_valid_employee_ids()
-            
-            # Process each row
-            for index, row in df.iterrows():
-                row_number = index + 2  # Excel row number (header is row 1)
-                
-                try:
-                    current_app.logger.info(f"Processing row {row_number}: {dict(row)}")
-                    
-                    # Validate and extract data
-                    validation_result = BulkAttendanceUpload._validate_row(
-                        row, row_number, valid_employee_ids
-                    )
-                    
-                    if not validation_result['valid']:
-                        failed_rows += 1
-                        current_app.logger.warning(f"Row {row_number} validation failed: {validation_result['error']}")
-                        errors.append({
-                            'row': row_number,
-                            'employee_id': str(row.get('Employee ID', 'N/A')),
-                            'error': validation_result['error']
-                        })
-                        continue
-                    
-                    # Save to database
-                    save_result = BulkAttendanceUpload._save_attendance_record(
-                        validation_result['data']
-                    )
-                    
-                    if save_result['success']:
-                        successful_rows += 1
-                    else:
-                        failed_rows += 1
-                        errors.append({
-                            'row': row_number,
-                            'employee_id': str(row.get('Employee ID', 'N/A')),
-                            'error': save_result['error']
-                        })
-                        
-                except Exception as e:
-                    failed_rows += 1
-                    errors.append({
-                        'row': row_number,
-                        'employee_id': str(row.get('Employee ID', 'N/A')),
-                        'error': f"Processing error: {str(e)}"
-                    })
-            
-            current_app.logger.info(f"Processing complete. Successful: {successful_rows}, Failed: {failed_rows}")
-            
-            # Return results even if some/all rows failed
-            return {
-                'success': True,  # Changed to True so frontend can see the errors
-                'total_rows': total_rows,
-                'successful_rows': successful_rows,
-                'failed_rows': failed_rows,
-                'errors': errors,
-                'message': f"Processed {total_rows} rows: {successful_rows} successful, {failed_rows} failed"
-            }
-            
+            rows, errors = BulkAttendanceUpload._parse_file(file_path)
         except Exception as e:
-            current_app.logger.error(f"Bulk upload error: {str(e)}")
+            return {'success': False, 'message': f'Failed to parse file: {str(e)}'}
+
+        if not rows and errors:
             return {
                 'success': False,
-                'message': f"File processing error: {str(e)}",
+                'message': 'File could not be parsed. Check format.',
                 'total_rows': 0,
                 'successful_rows': 0,
-                'failed_rows': 0,
-                'errors': []
+                'failed_rows': len(errors),
+                'errors': errors
             }
-    
-    @staticmethod
-    def _get_valid_employee_ids():
-        """Get list of valid employee IDs from database using stored procedure"""
+
+        # --- Insert raw logs ---
+        successful = 0
+        min_date = None
+        max_date = None
+
+        company_code = getattr(g, 'company_code', None)
+        if not company_code:
+            return {'success': False, 'message': 'Company context not set'}
+
+        conn = None
         try:
-            from app.database.multi_tenant_executor import MultiTenantExecutor
-            
-            result = MultiTenantExecutor.execute_procedure('proc_get_valid_employee_ids')
-            
-            if result["success"] and result["data"]:
-                return {row['employee_id'] for row in result["data"]}
-            
-            return set()
+            conn = connection_manager.get_company_connection(company_code)
+            cursor = conn.cursor()
+
+            for row in rows:
+                try:
+                    enrollid = row['employee_id']  # this is actually the device enrollid = employee_code
+                    log_time = row['log_time']
+
+                    # Resolve employee_code -> employee_id
+                    cursor.execute(
+                        "SELECT employee_id FROM employees WHERE employee_code = ? AND status = 'ACTIVE'",
+                        (str(enrollid),)
+                    )
+                    emp_row = cursor.fetchone()
+                    if not emp_row:
+                        errors.append({
+                            'row': row.get('row_number'),
+                            'employee_id': enrollid,
+                            'error': f'No active employee found with code {enrollid}'
+                        })
+                        continue
+                    employee_id = emp_row[0]
+
+                    # Skip duplicate punches (same employee, same minute)
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM attendance_raw_logs WHERE employee_id=? AND log_time=?",
+                        (employee_id, log_time)
+                    )
+                    if cursor.fetchone()[0] > 0:
+                        successful += 1  # already exists, count as ok
+                        continue
+
+                    cursor.execute(
+                        """INSERT INTO attendance_raw_logs
+                           (employee_id, log_time, source, created_at)
+                           VALUES (?, ?, 'BIOMETRIC', GETDATE())""",
+                        (employee_id, log_time)
+                    )
+                    successful += 1
+
+                    punch_date = log_time.date()
+                    if min_date is None or punch_date < min_date:
+                        min_date = punch_date
+                    if max_date is None or punch_date > max_date:
+                        max_date = punch_date
+
+                except Exception as row_err:
+                    logger.error(f"Row insert error - employee_id={row.get('employee_id')} log_time={row.get('log_time')}: {row_err}")
+                    errors.append({
+                        'row': row.get('row_number'),
+                        'employee_id': row.get('employee_id'),
+                        'error': str(row_err)
+                    })
+
+            conn.commit()
+
         except Exception as e:
-            current_app.logger.error(f"Error fetching employee IDs: {str(e)}")
-            return set()
-    
-    @staticmethod
-    def _validate_row(row, row_number, valid_employee_ids):
-        """Validate a single row"""
-        try:
-            # Get employee ID
-            employee_id = row.get('Employee ID')
-            if pd.isna(employee_id):
-                return {'valid': False, 'error': 'Employee ID is required'}
-            
-            # Convert employee_id to string and clean it
-            employee_id_str = str(employee_id).strip()
-            
-            # Handle format "1 - John Doe (EMP001)" - extract just the numeric ID
-            if ' - ' in employee_id_str:
-                employee_id_str = employee_id_str.split(' - ')[0].strip()
-            
-            # Try to extract numeric ID
+            logger.error(f"DB error during bulk upload: {e}")
+            return {'success': False, 'message': f'Database error: {str(e)}'}
+        finally:
+            if conn:
+                connection_manager.return_connection(company_code, conn)
+
+        # --- Trigger factory attendance generation ---
+        if min_date and max_date:
             try:
-                # Remove leading zeros and convert to int
-                emp_id_int = int(employee_id_str.lstrip('0')) if employee_id_str else None
-                if emp_id_int is None:
-                    return {'valid': False, 'error': 'Invalid Employee ID format'}
+                MultiTenantExecutor.execute_procedure(
+                    'proc_generate_factory_attendance',
+                    {
+                        'start_date': min_date.strftime('%Y-%m-%d'),
+                        'end_date': max_date.strftime('%Y-%m-%d')
+                    }
+                )
+                logger.info(f"Factory attendance generated for {min_date} to {max_date}")
+            except Exception as e:
+                logger.warning(f"Attendance generation failed (logs still saved): {e}")
+
+        return {
+            'success': True,
+            'message': f'Processed {successful} punch records. Attendance generated.',
+            'total_rows': len(rows),
+            'successful_rows': successful,
+            'failed_rows': len(errors),
+            'errors': errors,
+            'date_range': {
+                'from': str(min_date) if min_date else None,
+                'to': str(max_date) if max_date else None
+            }
+        }
+
+    @staticmethod
+    def _parse_file(file_path: str):
+        """Parse .xls or .xlsx device export. Tries openpyxl first, falls back to xlrd."""
+        # Try openpyxl first — handles .xlsx and many .xls files
+        try:
+            return BulkAttendanceUpload._parse_xlsx(file_path)
+        except Exception:
+            pass
+        # Fall back to xlrd for true old-format .xls
+        try:
+            return BulkAttendanceUpload._parse_xls(file_path)
+        except Exception as e:
+            return [], [{'row': 0, 'employee_id': None, 'error': f'Cannot read file: {str(e)}'}]
+
+    @staticmethod
+    def _parse_xls(file_path: str):
+        rows = []
+        errors = []
+        wb = xlrd.open_workbook(file_path)
+        ws = wb.sheet_by_index(0)
+
+        # Find header row
+        header_row = 0
+        for i in range(min(5, ws.nrows)):
+            row_vals = [str(ws.cell_value(i, j)).strip().upper() for j in range(ws.ncols)]
+            if 'ID' in row_vals and 'TIME' in row_vals:
+                header_row = i
+                break
+
+        headers = [str(ws.cell_value(header_row, j)).strip().upper() for j in range(ws.ncols)]
+
+        try:
+            id_col   = headers.index('ID')
+            time_col = headers.index('TIME')
+        except ValueError:
+            errors.append({'row': 0, 'employee_id': None, 'error': 'Missing ID or TIME column'})
+            return rows, errors
+
+        for i in range(header_row + 1, ws.nrows):
+            row_num = i + 1
+            try:
+                raw_id   = ws.cell_value(i, id_col)
+                raw_time = ws.cell_value(i, time_col)
+
+                if not raw_id and not raw_time:
+                    continue
+
+                employee_id = int(float(str(raw_id).strip()))
+                log_time    = BulkAttendanceUpload._parse_time(raw_time, wb.datemode)
+
+                rows.append({'employee_id': employee_id, 'log_time': log_time, 'row_number': row_num})
+
+            except Exception as e:
+                errors.append({'row': row_num, 'employee_id': None, 'error': str(e)})
+
+        return rows, errors
+
+    @staticmethod
+    def _parse_xlsx(file_path: str):
+        rows = []
+        errors = []
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        ws = wb.active
+
+        header_row_idx = None
+        id_col = time_col = None
+
+        for i, row in enumerate(ws.iter_rows(max_row=10, values_only=True)):
+            headers = [str(c).strip().upper() if c else '' for c in row]
+            if 'ID' in headers and 'TIME' in headers:
+                header_row_idx = i
+                id_col   = headers.index('ID')
+                time_col = headers.index('TIME')
+                break
+
+        if id_col is None:
+            errors.append({'row': 0, 'employee_id': None, 'error': 'Missing ID or TIME column'})
+            return rows, errors
+
+        for i, row in enumerate(ws.iter_rows(min_row=header_row_idx + 2, values_only=True)):
+            row_num = header_row_idx + 2 + i
+            try:
+                raw_id   = row[id_col]
+                raw_time = row[time_col]
+
+                if raw_id is None and raw_time is None:
+                    continue
+
+                employee_id = int(float(str(raw_id).strip()))
+                log_time    = BulkAttendanceUpload._parse_time(raw_time)
+
+                rows.append({'employee_id': employee_id, 'log_time': log_time, 'row_number': row_num})
+
+            except Exception as e:
+                errors.append({'row': row_num, 'employee_id': None, 'error': str(e)})
+
+        return rows, errors
+
+    @staticmethod
+    def _parse_time(value, datemode=None) -> datetime:
+        """Parse various time formats from device export."""
+        if isinstance(value, datetime):
+            return value
+
+        if isinstance(value, float) and datemode is not None:
+            # xlrd date serial
+            import xlrd as _xlrd
+            t = _xlrd.xldate_as_tuple(value, datemode)
+            return datetime(*t)
+
+        s = str(value).strip()
+        for fmt in ('%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S',
+                    '%d/%m/%Y %H:%M:%S', '%d-%m-%Y %H:%M:%S',
+                    '%Y/%m/%d %H:%M',    '%Y-%m-%d %H:%M'):
+            try:
+                return datetime.strptime(s, fmt)
             except ValueError:
-                return {'valid': False, 'error': f'Employee ID must be numeric (got: {employee_id_str})'}
-            
-            # Check if employee exists
-            if emp_id_int not in valid_employee_ids:
-                return {'valid': False, 'error': f'Employee ID {emp_id_int} not found in system'}
-            
-            # Validate date
-            date_value = row.get('Date')
-            if pd.isna(date_value):
-                return {'valid': False, 'error': 'Date is required'}
-            
-            try:
-                if isinstance(date_value, str):
-                    # Try DD-MM-YYYY format first
-                    try:
-                        attendance_date = datetime.strptime(date_value, '%d-%m-%Y').date()
-                    except ValueError:
-                        # Fallback to YYYY-MM-DD format
-                        attendance_date = datetime.strptime(date_value, '%Y-%m-%d').date()
-                else:
-                    attendance_date = pd.to_datetime(date_value).date()
-            except:
-                return {'valid': False, 'error': 'Invalid date format (use DD-MM-YYYY)'}
-            
-            # Validate status
-            status = str(row.get('Status', '')).strip().upper()
-            if not status:
-                return {'valid': False, 'error': 'Status is required'}
-            
-            if status not in BulkAttendanceUpload.VALID_STATUSES:
-                return {'valid': False, 'error': f'Invalid status (must be one of: {", ".join(BulkAttendanceUpload.VALID_STATUSES)})'}
-            
-            # Validate times (optional for some statuses)
-            check_in_time = None
-            check_out_time = None
-            
-            if status in ['PRESENT', 'LATE', 'WFH']:
-                check_in_value = row.get('Check-in Time')
-                check_out_value = row.get('Check-out Time')
-                
-                if not pd.isna(check_in_value):
-                    try:
-                        # Check if it's already a time object
-                        if hasattr(check_in_value, 'hour'):
-                            check_in_time = check_in_value if isinstance(check_in_value, time) else check_in_value.time()
-                        elif isinstance(check_in_value, str):
-                            check_in_value = check_in_value.strip()
-                            # Try HH:MM:SS format first, then HH:MM
-                            try:
-                                check_in_time = datetime.strptime(check_in_value, '%H:%M:%S').time()
-                            except ValueError:
-                                check_in_time = datetime.strptime(check_in_value, '%H:%M').time()
-                        else:
-                            # Try to convert to datetime and extract time
-                            check_in_time = pd.to_datetime(check_in_value).time()
-                    except Exception as e:
-                        return {'valid': False, 'error': f'Invalid check-in time format (use HH:MM) - got: {check_in_value}'}
-                
-                if not pd.isna(check_out_value):
-                    try:
-                        # Check if it's already a time object
-                        if hasattr(check_out_value, 'hour'):
-                            check_out_time = check_out_value if isinstance(check_out_value, datetime.time) else check_out_value.time()
-                        elif isinstance(check_out_value, str):
-                            check_out_value = check_out_value.strip()
-                            # Try HH:MM:SS format first, then HH:MM
-                            try:
-                                check_out_time = datetime.strptime(check_out_value, '%H:%M:%S').time()
-                            except ValueError:
-                                check_out_time = datetime.strptime(check_out_value, '%H:%M').time()
-                        else:
-                            # Try to convert to datetime and extract time
-                            check_out_time = pd.to_datetime(check_out_value).time()
-                    except Exception as e:
-                        return {'valid': False, 'error': f'Invalid check-out time format (use HH:MM) - got: {check_out_value}'}
-            
-            return {
-                'valid': True,
-                'data': {
-                    'employee_id': emp_id_int,
-                    'attendance_date': attendance_date,
-                    'status': status,
-                    'check_in_time': check_in_time,
-                    'check_out_time': check_out_time
-                }
-            }
-            
-        except Exception as e:
-            return {'valid': False, 'error': f'Validation error: {str(e)}'}
-    
+                continue
+        raise ValueError(f"Cannot parse time: {value!r}")
+
     @staticmethod
-    def _save_attendance_record(data):
-        """Save attendance record to database using stored procedure"""
+    def generate_template() -> dict:
+        """Generate a sample template showing the device export format."""
         try:
-            from app.database.multi_tenant_executor import MultiTenantExecutor
-            
-            employee_id = data['employee_id']
-            attendance_date = data['attendance_date']
-            status = data['status']
-            check_in_time = data.get('check_in_time')
-            check_out_time = data.get('check_out_time')
-            
-            # Calculate working minutes
-            working_mins = None
-            if check_in_time and check_out_time:
-                check_in_dt = datetime.combine(attendance_date, check_in_time)
-                check_out_dt = datetime.combine(attendance_date, check_out_time)
-                working_mins = int((check_out_dt - check_in_dt).total_seconds() / 60)
-            
-            # Use stored procedure to upsert attendance record
-            parameters = {
-                'employee_id': employee_id,
-                'attendance_date': attendance_date,
-                'status': status,
-                'check_in_time': check_in_time,
-                'check_out_time': check_out_time,
-                'working_minutes': working_mins
-            }
-            
-            result = MultiTenantExecutor.execute_procedure('proc_upsert_attendance_record', parameters)
-            
-            if result["success"]:
-                return {'success': True}
-            else:
-                return {'success': False, 'error': 'Failed to save attendance record'}
-            
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'Attendance'
+            ws.append(['ID', 'Name', 'Time'])
+            ws.append([2, 'AABHAS NEGI', '2026/04/09 08:05:00'])
+            ws.append([2, 'AABHAS NEGI', '2026/04/09 20:10:00'])
+            ws.append([3, 'PRATHAM KANOJIA', '2026/04/09 08:12:00'])
+            ws.append([3, 'PRATHAM KANOJIA', '2026/04/09 20:05:00'])
+
+            tmp = tempfile.NamedTemporaryFile(
+                mode='wb', suffix='.xlsx', delete=False,
+                prefix='device_attendance_template_'
+            )
+            wb.save(tmp.name)
+            tmp.close()
+            return {'success': True, 'file_path': tmp.name}
         except Exception as e:
-            current_app.logger.error(f"Error saving attendance record: {str(e)}")
-            return {'success': False, 'error': f'Database error: {str(e)}'}
-    
-    @staticmethod
-    def generate_template():
-        """Generate Excel template file"""
-        try:
-            import tempfile
-            import os
-            
-            # Create sample data with DD-MM-YYYY format
-            data = {
-                'Employee ID': ['1', '2', '3'],
-                'Date': ['15-01-2026', '15-01-2026', '15-01-2026'],
-                'Check-in Time': ['09:00', '09:15', ''],
-                'Check-out Time': ['18:00', '18:30', ''],
-                'Status': ['PRESENT', 'LATE', 'ABSENT']
-            }
-            
-            df = pd.DataFrame(data)
-            
-            # Create Excel file in system temp directory
-            temp_dir = tempfile.gettempdir()
-            template_path = os.path.join(temp_dir, 'attendance_upload_template.xlsx')
-            df.to_excel(template_path, index=False, engine='openpyxl')
-            
-            return {'success': True, 'file_path': template_path}
-            
-        except Exception as e:
-            current_app.logger.error(f"Error generating template: {str(e)}")
             return {'success': False, 'error': str(e)}

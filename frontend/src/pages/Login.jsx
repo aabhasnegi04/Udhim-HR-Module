@@ -160,7 +160,7 @@ const Login = () => {
                             fontSize: isMobile ? '1.5rem' : isTablet ? '1.75rem' : '2rem',
                         }}
                     >
-                        UDHM HRMS
+                        {import.meta.env.VITE_COMPANY_NAME || 'HRMS'}
                     </Typography>
                     <Typography
                         variant="body2"

@@ -118,6 +118,17 @@ class ApiService {
         const data = await response.json();
 
         if (!response.ok) {
+          // Handle 401 Unauthorized or token expiration
+          if (response.status === 401 || 
+              (response.status === 500 && data.message && 
+               (data.message.includes('Signature has expired') || 
+                data.message.includes('Token has expired') ||
+                data.message.includes('Invalid token')))) {
+            console.warn('Token expired or invalid, logging out...');
+            this.handleTokenExpiration();
+            throw new Error('Session expired. Please login again.');
+          }
+
           // For 500 errors, retry if we have attempts left
           if (response.status === 500 && attempt < maxRetries) {
             console.warn(`API Request failed with 500 error, retrying... (attempt ${attempt + 1}/${maxRetries + 1})`);
@@ -129,6 +140,11 @@ class ApiService {
 
         return data;
       } catch (error) {
+        // If it's a token expiration error, don't retry
+        if (error.message.includes('Session expired')) {
+          throw error;
+        }
+
         // For network errors, retry if we have attempts left
         if (attempt < maxRetries && (error.name === 'TypeError' || error.message.includes('fetch'))) {
           console.warn(`Network error, retrying... (attempt ${attempt + 1}/${maxRetries + 1}):`, error.message);
@@ -140,6 +156,17 @@ class ApiService {
         throw error;
       }
     }
+  }
+
+  // Handle token expiration - clear session and redirect to login
+  handleTokenExpiration() {
+    // Clear all session data
+    sessionStorage.removeItem('hrms_token');
+    sessionStorage.removeItem('hrms_user');
+    localStorage.removeItem('preferred_view');
+    
+    // Redirect to login page
+    window.location.href = '/login';
   }
 
   // Helper method for delays

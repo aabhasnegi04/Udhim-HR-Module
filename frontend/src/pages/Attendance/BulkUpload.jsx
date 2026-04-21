@@ -1,386 +1,384 @@
 import { useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
-    Box,
-    Typography,
-    Paper,
-    Button,
-    Card,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Chip,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Alert,
-    LinearProgress,
-    Divider,
+    Box, Typography, Paper, Button, Table, TableBody, TableCell,
+    TableContainer, TableHead, TableRow, Chip, Alert, LinearProgress,
+    Divider, TextField, CircularProgress,
 } from '@mui/material';
 import {
-    CloudUpload as UploadIcon,
-    CheckCircle as SuccessIcon,
-    Download as DownloadIcon,
-    Info as InfoIcon,
+    CloudUpload as UploadIcon, CheckCircle as SuccessIcon,
+    Download as DownloadIcon, Info as InfoIcon, Refresh as ReprocessIcon,
+    Visibility as PreviewIcon,
 } from '@mui/icons-material';
 import attendanceService from '../../services/attendanceService';
+import ApiService from '../../services/api';
+
+// Format minutes as "Xh Ym"
+const fmtDuration = (minutes) => {
+    if (!minutes || minutes <= 0) return '—';
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+};
+
+// Parse device XLS/XLSX client-side and group by employee+date
+const parseDeviceFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+            // Find header row
+            let headerIdx = 0;
+            let idCol = -1, timeCol = -1, nameCol = -1;
+            for (let i = 0; i < Math.min(5, rows.length); i++) {
+                const r = rows[i].map(c => String(c).trim().toUpperCase());
+                if (r.includes('ID') && r.includes('TIME')) {
+                    headerIdx = i;
+                    idCol = r.indexOf('ID');
+                    timeCol = r.indexOf('TIME');
+                    nameCol = r.indexOf('NAME');
+                    break;
+                }
+            }
+            if (idCol === -1) { reject(new Error('Missing ID or TIME column')); return; }
+
+            // Group punches by employee+date
+            const groups = {};
+            for (let i = headerIdx + 1; i < rows.length; i++) {
+                const row = rows[i];
+                const rawId = row[idCol];
+                const rawTime = row[timeCol];
+                if (!rawId && !rawTime) continue;
+
+                const empId = parseInt(String(rawId).trim());
+                const name = nameCol >= 0 ? String(row[nameCol]).trim() : '';
+                if (isNaN(empId)) continue;
+
+                let dt;
+                if (rawTime instanceof Date) {
+                    dt = rawTime;
+                } else {
+                    const s = String(rawTime).trim();
+                    dt = new Date(s.replace(/\//g, '-'));
+                    if (isNaN(dt)) continue;
+                }
+
+                const dateKey = dt.toISOString().split('T')[0];
+                const key = `${empId}_${dateKey}`;
+                if (!groups[key]) groups[key] = { empId, name, date: dateKey, punches: [] };
+                groups[key].punches.push(dt);
+            }
+
+            // Build preview rows
+            const preview = Object.values(groups).map(g => {
+                g.punches.sort((a, b) => a - b);
+                const first = g.punches[0];
+                const last = g.punches[g.punches.length - 1];
+                const minutes = Math.round((last - first) / 60000);
+                return {
+                    empId: g.empId,
+                    name: g.name,
+                    date: g.date,
+                    firstPunch: first.toTimeString().slice(0, 5),
+                    lastPunch: last.toTimeString().slice(0, 5),
+                    punchCount: g.punches.length,
+                    duration: fmtDuration(minutes),
+                    durationMinutes: minutes,
+                    flag: g.punches.length === 1 ? 'single-punch' : null,
+                };
+            }).sort((a, b) => a.date.localeCompare(b.date) || a.empId - b.empId);
+
+            resolve(preview);
+        } catch (err) {
+            reject(err);
+        }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+});
 
 const BulkUpload = () => {
-    const [uploadStep, setUploadStep] = useState('upload'); // upload, preview, validation, success
+    const [step, setStep] = useState('upload'); // upload | preview | uploading | success
     const [selectedFile, setSelectedFile] = useState(null);
-    const [showValidationModal, setShowValidationModal] = useState(false);
+    const [preview, setPreview] = useState([]);
+    const [parsing, setParsing] = useState(false);
     const [uploading, setUploading] = useState(false);
-    const [validationResults, setValidationResults] = useState(null);
+    const [uploadResult, setUploadResult] = useState(null);
     const [error, setError] = useState('');
 
-    const handleFileSelect = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            setSelectedFile(file);
-            setUploadStep('preview');
-            setError('');
+    // Reprocess state
+    const [reprocessStart, setReprocessStart] = useState(new Date().toISOString().split('T')[0]);
+    const [reprocessEnd, setReprocessEnd] = useState(new Date().toISOString().split('T')[0]);
+    const [reprocessing, setReprocessing] = useState(false);
+    const [reprocessMsg, setReprocessMsg] = useState('');
+
+    const handleFileSelect = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setSelectedFile(file);
+        setError('');
+        setParsing(true);
+        try {
+            const rows = await parseDeviceFile(file);
+            setPreview(rows);
+            setStep('preview');
+        } catch (err) {
+            setError(`Failed to parse file: ${err.message}`);
+        } finally {
+            setParsing(false);
         }
     };
 
-    const handleValidate = async () => {
-        if (!selectedFile) return;
-        
+    const handleUpload = async () => {
         setUploading(true);
+        setStep('uploading');
         setError('');
-        
         try {
             const result = await attendanceService.bulkUploadAttendance(selectedFile);
-            
-            if (result.success) {
-                setValidationResults(result.data);
-                setUploading(false);
-                
-                // Always show the modal to display results (even if all failed)
-                setShowValidationModal(true);
-            } else {
-                setUploading(false);
-                setError(result.error || 'Failed to process file');
-            }
+            setUploadResult(result.success ? result.data : null);
+            if (!result.success) setError(result.error || 'Upload failed');
+            else setStep('success');
         } catch (err) {
+            setError('Upload failed. Please try again.');
+            setStep('preview');
+        } finally {
             setUploading(false);
-            setError('Failed to upload file. Please try again.');
-            console.error('Upload error:', err);
         }
-    };
-
-    const handleConfirmUpload = () => {
-        setShowValidationModal(false);
-        setUploadStep('success');
     };
 
     const handleReset = () => {
-        setUploadStep('upload');
+        setStep('upload');
         setSelectedFile(null);
-        setShowValidationModal(false);
-        setUploading(false);
-        setValidationResults(null);
+        setPreview([]);
+        setUploadResult(null);
         setError('');
+    };
+
+    const handleReprocess = async () => {
+        setReprocessing(true);
+        setReprocessMsg('');
+        try {
+            const res = await ApiService.post('/attendance/factory/process', {
+                start_date: reprocessStart, end_date: reprocessEnd,
+            });
+            setReprocessMsg(res.success ? `✅ ${res.message}` : `❌ ${res.error || 'Failed'}`);
+        } catch {
+            setReprocessMsg('❌ Failed to process attendance');
+        } finally {
+            setReprocessing(false);
+        }
     };
 
     const downloadTemplate = async () => {
         try {
-            const result = await attendanceService.downloadBulkUploadTemplate();
-            if (!result.success) {
-                setError('Failed to download template');
-            }
-        } catch (err) {
-            setError('Failed to download template');
-            console.error('Template download error:', err);
-        }
+            await attendanceService.downloadBulkUploadTemplate();
+        } catch { setError('Failed to download template'); }
     };
+
+    const singlePunchCount = preview.filter(r => r.flag === 'single-punch').length;
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
-            {/* Quick Info */}
-            <Box sx={{ mb: { xs: 2, sm: 3 } }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                    Excel File Upload
-                </Typography>
+            <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" fontWeight={600}>Device Attendance Upload</Typography>
                 <Typography variant="body2" color="text.secondary">
-                    Upload attendance data for multiple employees using Excel files
+                    Upload the raw punch log exported from the biometric device via USB
                 </Typography>
             </Box>
 
-            {/* Upload Step */}
-            {uploadStep === 'upload' && (
-                <Box sx={{ display: 'flex', gap: { xs: 2, sm: 3, md: 4 }, flexWrap: 'wrap' }}>
-                    <Box sx={{ flex: '2 1 500px', minWidth: { xs: '300px', sm: '500px' } }}>
-                        {error && (
-                            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-                                {error}
-                            </Alert>
-                        )}
-                        
-                        <Paper sx={{ 
-                            p: { xs: 3, sm: 4, md: 6 }, 
-                            textAlign: 'center', 
-                            border: '2px dashed', 
-                            borderColor: 'primary.main', 
-                            bgcolor: 'primary.50', 
-                            minHeight: { xs: 300, sm: 350, md: 400 }, 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            justifyContent: 'center' 
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+            {/* STEP 1: Upload */}
+            {step === 'upload' && (
+                <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                    <Box sx={{ flex: '2 1 500px' }}>
+                        {parsing && <LinearProgress sx={{ mb: 2 }} />}
+                        <Paper sx={{
+                            p: 6, textAlign: 'center', border: '2px dashed',
+                            borderColor: 'primary.main', bgcolor: 'primary.50',
+                            minHeight: 350, display: 'flex', flexDirection: 'column', justifyContent: 'center'
                         }}>
-                            <UploadIcon sx={{ fontSize: { xs: 60, sm: 70, md: 80 }, color: 'primary.main', mb: { xs: 2, sm: 3 } }} />
-                            <Typography variant="h5" sx={{ mb: 2, fontWeight: 600, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-                                Upload Attendance File
+                            <UploadIcon sx={{ fontSize: 80, color: 'primary.main', mb: 3 }} />
+                            <Typography variant="h5" fontWeight={600} sx={{ mb: 2 }}>
+                                Upload Device Export File
                             </Typography>
-                            <Typography variant="body1" color="text.secondary" sx={{ 
-                                mb: { xs: 3, sm: 4 }, 
-                                maxWidth: 500, 
-                                mx: 'auto',
-                                fontSize: { xs: '0.875rem', sm: '1rem' }
-                            }}>
-                                Select an Excel file (.xlsx, .xls) containing attendance data. Make sure your file follows the required format.
+                            <Typography variant="body1" color="text.secondary" sx={{ mb: 4, maxWidth: 500, mx: 'auto' }}>
+                                Select the .xls file exported from the biometric device USB.
+                                The file will be previewed before uploading.
                             </Typography>
-                            
-                            <input
-                                accept=".xlsx,.xls"
-                                style={{ display: 'none' }}
-                                id="file-upload"
-                                type="file"
-                                onChange={handleFileSelect}
-                            />
-                            <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 }, justifyContent: 'center', flexWrap: 'wrap' }}>
+                            <input accept=".xlsx,.xls" style={{ display: 'none' }} id="file-upload"
+                                type="file" onChange={handleFileSelect} />
+                            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
                                 <label htmlFor="file-upload">
-                                    <Button
-                                        variant="contained"
-                                        component="span"
-                                        size="large"
-                                        startIcon={<UploadIcon />}
-                                        sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-                                    >
+                                    <Button variant="contained" component="span" size="large" startIcon={<UploadIcon />}>
                                         Choose File
                                     </Button>
                                 </label>
-                                
-                                <Button
-                                    variant="outlined"
-                                    size="large"
-                                    startIcon={<DownloadIcon />}
-                                    onClick={downloadTemplate}
-                                    sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-                                >
-                                    Download Template
+                                <Button variant="outlined" size="large" startIcon={<DownloadIcon />} onClick={downloadTemplate}>
+                                    Sample Template
                                 </Button>
                             </Box>
-
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: { xs: 2, sm: 3 } }}>
-                                Supported formats: .xlsx, .xls (Max size: 10MB)
-                            </Typography>
                         </Paper>
                     </Box>
-
-                    <Box sx={{ flex: '1 1 300px', minWidth: { xs: '300px', sm: '350px' } }}>
-                        <Paper sx={{ p: { xs: 3, sm: 4 }, height: 'fit-content' }}>
-                            <Typography variant="h6" sx={{ fontWeight: 600, mb: { xs: 2, sm: 3 }, display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <InfoIcon color="primary" />
-                                Upload Instructions
+                    <Box sx={{ flex: '1 1 280px' }}>
+                        <Paper sx={{ p: 3 }}>
+                            <Typography variant="h6" fontWeight={600} sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <InfoIcon color="primary" /> File Format
                             </Typography>
-                            
-                            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
-                                Required Columns:
-                            </Typography>
-                            <Box component="ul" sx={{ pl: 2, m: 0, mb: { xs: 2, sm: 3 } }}>
-                                <Typography component="li" variant="body2" sx={{ mb: 1, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    <strong>Employee ID</strong> - Unique identifier
-                                </Typography>
-                                <Typography component="li" variant="body2" sx={{ mb: 1, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    <strong>Date</strong> - Format: DD-MM-YYYY
-                                </Typography>
-                                <Typography component="li" variant="body2" sx={{ mb: 1, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    <strong>Check-in Time</strong> - Format: HH:MM
-                                </Typography>
-                                <Typography component="li" variant="body2" sx={{ mb: 1, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    <strong>Check-out Time</strong> - Format: HH:MM
-                                </Typography>
-                                <Typography component="li" variant="body2" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    <strong>Status</strong> - Present/Absent/Late/etc.
-                                </Typography>
+                            <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Required Columns:</Typography>
+                            <Box component="ul" sx={{ pl: 2, m: 0, mb: 2 }}>
+                                <Typography component="li" variant="body2" sx={{ mb: 0.5 }}><strong>ID</strong> — Employee ID</Typography>
+                                <Typography component="li" variant="body2" sx={{ mb: 0.5 }}><strong>Name</strong> — Employee name</Typography>
+                                <Typography component="li" variant="body2"><strong>Time</strong> — YYYY/MM/DD HH:MM:SS</Typography>
                             </Box>
-
-                            <Divider sx={{ my: { xs: 2, sm: 3 } }} />
-
-                            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
-                                Tips for Success:
-                            </Typography>
+                            <Divider sx={{ my: 2 }} />
+                            <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>What happens:</Typography>
                             <Box component="ul" sx={{ pl: 2, m: 0 }}>
-                                <Typography component="li" variant="body2" sx={{ mb: 1, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    Use the provided template
-                                </Typography>
-                                <Typography component="li" variant="body2" sx={{ mb: 1, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    Ensure all required fields are filled
-                                </Typography>
-                                <Typography component="li" variant="body2" sx={{ mb: 1, fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    Check date and time formats
-                                </Typography>
-                                <Typography component="li" variant="body2" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                                    Verify employee IDs exist in system
-                                </Typography>
+                                <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>File is previewed before upload</Typography>
+                                <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>First punch = check-in, last = check-out</Typography>
+                                <Typography component="li" variant="body2">Attendance auto-calculated after upload</Typography>
                             </Box>
                         </Paper>
                     </Box>
                 </Box>
             )}
 
-            {/* Preview Step */}
-            {uploadStep === 'preview' && selectedFile && (
+            {/* STEP 2: Preview */}
+            {step === 'preview' && (
                 <Box>
-                    <Alert severity="info" sx={{ mb: { xs: 2, sm: 3 } }}>
-                        File selected: <strong>{selectedFile.name}</strong> ({(selectedFile.size / 1024).toFixed(1)} KB)
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        <strong>{selectedFile?.name}</strong> — {preview.length} employee-day records found
+                        {singlePunchCount > 0 && ` · ⚠️ ${singlePunchCount} with single punch (will be flagged)`}
                     </Alert>
 
-                    {error && (
-                        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-                            {error}
-                        </Alert>
-                    )}
-
-                    <Paper sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 } }}>
-                        <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                            Ready to Upload
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: { xs: 2, sm: 3 } }}>
-                            Click "Validate & Upload" to process the file. The system will validate all records and save them to the database.
-                        </Typography>
+                    <Paper sx={{ mb: 2 }}>
+                        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}>
+                            <PreviewIcon color="primary" fontSize="small" />
+                            <Typography variant="subtitle1" fontWeight={600}>Preview — Review before uploading</Typography>
+                        </Box>
+                        <TableContainer sx={{ maxHeight: 450 }}>
+                            <Table size="small" stickyHeader>
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>Emp ID</TableCell>
+                                        <TableCell>Name</TableCell>
+                                        <TableCell>Date</TableCell>
+                                        <TableCell>First Punch</TableCell>
+                                        <TableCell>Last Punch</TableCell>
+                                        <TableCell>Punches</TableCell>
+                                        <TableCell>Duration</TableCell>
+                                        <TableCell>Status</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {preview.map((row, i) => (
+                                        <TableRow key={i} sx={{ bgcolor: row.flag ? 'warning.50' : 'inherit' }}>
+                                            <TableCell>{row.empId}</TableCell>
+                                            <TableCell>{row.name || '—'}</TableCell>
+                                            <TableCell>{row.date}</TableCell>
+                                            <TableCell>{row.firstPunch}</TableCell>
+                                            <TableCell>{row.punchCount > 1 ? row.lastPunch : '—'}</TableCell>
+                                            <TableCell>{row.punchCount}</TableCell>
+                                            <TableCell><strong>{row.duration}</strong></TableCell>
+                                            <TableCell>
+                                                {row.flag === 'single-punch'
+                                                    ? <Chip label="Single Punch" color="warning" size="small" />
+                                                    : <Chip label="OK" color="success" size="small" />
+                                                }
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
                     </Paper>
 
-                    <Box sx={{ 
-                        display: 'flex', 
-                        gap: { xs: 1, sm: 2 }, 
-                        justifyContent: 'flex-end',
-                        flexDirection: { xs: 'column', sm: 'row' }
-                    }}>
-                        <Button variant="outlined" onClick={handleReset} fullWidth={false} disabled={uploading}>
-                            Cancel
-                        </Button>
-                        <Button 
-                            variant="contained" 
-                            onClick={handleValidate}
-                            disabled={uploading}
-                            fullWidth={false}
-                        >
-                            {uploading ? 'Processing...' : 'Validate & Upload'}
+                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                        <Button variant="outlined" onClick={handleReset}>Cancel</Button>
+                        <Button variant="contained" onClick={handleUpload}>
+                            Confirm & Upload
                         </Button>
                     </Box>
-
-                    {uploading && <LinearProgress sx={{ mt: 2 }} />}
                 </Box>
             )}
 
-            {/* Success Step */}
-            {uploadStep === 'success' && validationResults && (
-                <Paper sx={{ p: { xs: 3, sm: 4 }, textAlign: 'center' }}>
-                    <SuccessIcon sx={{ fontSize: { xs: 48, sm: 64 }, color: 'success.main', mb: 2 }} />
-                    <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-                        Upload Successful!
+            {/* STEP 3: Uploading */}
+            {step === 'uploading' && (
+                <Paper sx={{ p: 6, textAlign: 'center' }}>
+                    <CircularProgress size={60} sx={{ mb: 3 }} />
+                    <Typography variant="h6" fontWeight={600} sx={{ mb: 1 }}>Uploading & Processing...</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        Saving punch records and calculating attendance. This may take a moment.
                     </Typography>
-                    <Typography variant="body1" color="text.secondary" sx={{ mb: { xs: 2, sm: 3 } }}>
-                        {validationResults.successful_rows} attendance records have been successfully uploaded.
-                    </Typography>
-                    {validationResults.failed_rows > 0 && (
-                        <Alert severity="warning" sx={{ mb: 2 }}>
-                            {validationResults.failed_rows} records failed validation and were not uploaded.
-                        </Alert>
-                    )}
-                    <Button variant="contained" onClick={handleReset}>
-                        Upload Another File
-                    </Button>
+                    <LinearProgress sx={{ mt: 3, maxWidth: 400, mx: 'auto' }} />
                 </Paper>
             )}
 
-            {/* Validation Results Modal */}
-            <Dialog
-                open={showValidationModal}
-                onClose={() => setShowValidationModal(false)}
-                maxWidth="md"
-                fullWidth
-            >
-                <DialogTitle>Upload Results</DialogTitle>
-                <DialogContent>
-                    {validationResults && (
-                        <>
-                            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                                <Box sx={{ flex: '1 1 150px', minWidth: '150px' }}>
-                                    <Card sx={{ textAlign: 'center', p: 2 }}>
-                                        <Typography variant="h4" color="primary.main">
-                                            {validationResults.total_rows}
+            {/* STEP 4: Success */}
+            {step === 'success' && uploadResult && (
+                <Paper sx={{ p: 4, textAlign: 'center' }}>
+                    <SuccessIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
+                    <Typography variant="h5" fontWeight={600} sx={{ mb: 1 }}>Upload Complete</Typography>
+                    <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                        {uploadResult.successful_rows} punch records saved.
+                        Attendance calculated for{' '}
+                        <strong>{uploadResult.date_range?.from}</strong> to{' '}
+                        <strong>{uploadResult.date_range?.to}</strong>.
+                    </Typography>
+                    {uploadResult.failed_rows > 0 && (
+                        <Alert severity="warning" sx={{ mb: 2, textAlign: 'left' }}>
+                            {uploadResult.failed_rows} rows had errors and were skipped.
+                            {uploadResult.errors?.length > 0 && (
+                                <Box sx={{ mt: 1 }}>
+                                    {uploadResult.errors.slice(0, 5).map((e, i) => (
+                                        <Typography key={i} variant="caption" display="block">
+                                            Row {e.row} (emp {e.employee_id}): {e.error}
                                         </Typography>
-                                        <Typography variant="body2">Total Rows</Typography>
-                                    </Card>
-                                </Box>
-                                <Box sx={{ flex: '1 1 150px', minWidth: '150px' }}>
-                                    <Card sx={{ textAlign: 'center', p: 2 }}>
-                                        <Typography variant="h4" color="success.main">
-                                            {validationResults.successful_rows}
-                                        </Typography>
-                                        <Typography variant="body2">Successful</Typography>
-                                    </Card>
-                                </Box>
-                                <Box sx={{ flex: '1 1 150px', minWidth: '150px' }}>
-                                    <Card sx={{ textAlign: 'center', p: 2 }}>
-                                        <Typography variant="h4" color="error.main">
-                                            {validationResults.failed_rows}
-                                        </Typography>
-                                        <Typography variant="body2">Failed</Typography>
-                                    </Card>
-                                </Box>
-                            </Box>
-
-                            {validationResults.errors && validationResults.errors.length > 0 && (
-                                <Box>
-                                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                                        Errors Found:
-                                    </Typography>
-                                    <TableContainer sx={{ maxHeight: 400 }}>
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow>
-                                                    <TableCell>Row</TableCell>
-                                                    <TableCell>Employee ID</TableCell>
-                                                    <TableCell>Error</TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {validationResults.errors.map((error, index) => (
-                                                    <TableRow key={index}>
-                                                        <TableCell>{error.row}</TableCell>
-                                                        <TableCell>{error.employee_id}</TableCell>
-                                                        <TableCell>
-                                                            <Chip label={error.error} color="error" size="small" />
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
+                                    ))}
+                                    {uploadResult.errors.length > 5 && (
+                                        <Typography variant="caption">...and {uploadResult.errors.length - 5} more</Typography>
+                                    )}
                                 </Box>
                             )}
-                        </>
+                        </Alert>
                     )}
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setShowValidationModal(false)}>
-                        Cancel
-                    </Button>
-                    <Button 
-                        variant="contained" 
-                        onClick={handleConfirmUpload}
-                        disabled={!validationResults || validationResults.successful_rows === 0}
-                    >
-                        OK
-                    </Button>
-                </DialogActions>
-            </Dialog>
+                    <Button variant="contained" onClick={handleReset}>Upload Another File</Button>
+                </Paper>
+            )}
+
+            {/* Reprocess Section */}
+            <Box sx={{ mt: 5 }}>
+                <Divider sx={{ mb: 3 }} />
+                <Typography variant="h6" fontWeight={600} sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ReprocessIcon color="primary" /> Reprocess Attendance
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Recalculate attendance for a date range — use after changing shift timings or correcting punch data.
+                </Typography>
+                <Paper sx={{ p: 3 }}>
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                        <TextField label="From Date" type="date" value={reprocessStart}
+                            onChange={e => setReprocessStart(e.target.value)} size="small"
+                            InputLabelProps={{ shrink: true }} />
+                        <TextField label="To Date" type="date" value={reprocessEnd}
+                            onChange={e => setReprocessEnd(e.target.value)} size="small"
+                            InputLabelProps={{ shrink: true }} />
+                        <Button variant="outlined" startIcon={<ReprocessIcon />}
+                            onClick={handleReprocess} disabled={reprocessing}>
+                            {reprocessing ? 'Processing...' : 'Process Attendance'}
+                        </Button>
+                    </Box>
+                    {reprocessMsg && (
+                        <Alert severity={reprocessMsg.startsWith('✅') ? 'success' : 'error'}
+                            sx={{ mt: 2 }} onClose={() => setReprocessMsg('')}>
+                            {reprocessMsg}
+                        </Alert>
+                    )}
+                </Paper>
+            </Box>
         </Box>
     );
 };

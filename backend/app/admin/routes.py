@@ -1097,7 +1097,13 @@ def download_bulk_upload_template(template_type):
             departments = [d['department_name'] for d in (departments_result.get('data') or [])] if departments_result.get('success') else []
             designations = [d['designation_name'] for d in (designations_result.get('data') or [])] if designations_result.get('success') else []
             locations = [l['location_name'] for l in (locations_result.get('data') or [])] if locations_result.get('success') else []
-            
+
+            # Fetch shifts for dropdown
+            from app.database.multi_tenant_executor import MultiTenantExecutor as _MTE
+            shifts_result = _MTE.execute_procedure('proc_get_shift_definitions')
+            shifts = []
+            if shifts_result.get('success') and shifts_result.get('data'):
+                shifts = [s['shift_name'] for s in shifts_result['data'] if s.get('is_active')]            
             # Create workbook
             wb = Workbook()
             ws = wb.active
@@ -1137,18 +1143,25 @@ def download_bulk_upload_template(template_type):
             emp_types = ['Full-Time', 'Part-Time', 'Contract', 'Intern', 'Consultant']
             for idx, emp_type in enumerate(emp_types, start=2):
                 ref_sheet[f'E{idx}'] = emp_type
-            
+
+            # Add shifts to reference sheet
+            ref_sheet['F1'] = 'Shifts'
+            ref_sheet['F1'].font = Font(bold=True)
+            for idx, shift in enumerate(shifts, start=2):
+                ref_sheet[f'F{idx}'] = shift
+
             # Define headers for main sheet
             headers = [
-                'Employee Code', 'First Name', 'Last Name', 'Email',
-                'Phone', 'DOB (YYYY-MM-DD)', 'Gender', 'Address',
-                'Emergency Contact Phone',
+                # Required (red) - left side
+                'Employee Code', 'First Name', 'Last Name (optional)',
                 'Department', 'Designation', 'Date of Joining (YYYY-MM-DD)',
-                'Work Location', 'Employment Type'
+                # Optional (blue) - right side
+                'Email (optional)', 'Phone', 'DOB (YYYY-MM-DD)', 'Gender', 'Address',
+                'Emergency Contact Phone', 'Work Location', 'Employment Type', 'Shift (optional)'
             ]
-            
-            # Mark required fields
-            required_cols = [0, 1, 2, 3, 9, 10, 11]  # Employee Code, First/Last Name, Email, Dept, Desig, DOJ
+
+            # Mark required fields (first 6 columns, excluding Last Name at index 2)
+            required_cols = [0, 1, 3, 4, 5]  # Employee Code, First Name, Department, Designation, DOJ
             
             # Style header row
             header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
@@ -1168,14 +1181,18 @@ def download_bulk_upload_template(template_type):
             
             # Add sample data row
             sample_data = [
-                'EMP001', 'John', 'Doe', 'john.doe@company.com',
-                '9876543210', '1990-01-15', 'Male', '123 Main St, Mumbai, Maharashtra, India 400001',
-                '9876543212',
+                # Required columns first
+                '1', 'John', 'Doe',
                 departments[0] if departments else 'Engineering',
                 designations[0] if designations else 'Software Engineer',
                 '2024-01-01',
+                # Optional columns
+                'john.doe@company.com',
+                '9876543210', '1990-01-15', 'Male', '123 Main St, Mumbai, Maharashtra, India 400001',
+                '9876543212',
                 locations[0] if locations else 'Mumbai Office',
-                'Full-Time'
+                'Full-Time',
+                shifts[0] if shifts else ''
             ]
             
             for col_num, value in enumerate(sample_data, start=1):
@@ -1184,66 +1201,52 @@ def download_bulk_upload_template(template_type):
             # Get the last employee code from database to continue sequence
             try:
                 from app.database.multi_tenant_executor import MultiTenantExecutor
-                result = MultiTenantExecutor.execute_procedure('proc_get_last_employee_code', {})
-                last_code = None
+                result = MultiTenantExecutor.execute_procedure('proc_get_next_employee_code', {})
+                next_num = 2
                 if result.get("success") and result.get("data") and len(result["data"]) > 0:
                     row = result["data"][0]
-                    last_code = row.get('last_employee_code') if row else None
-                
-                # Determine starting number for next employee
-                if last_code and isinstance(last_code, str) and last_code.startswith('EMP'):
-                    try:
-                        last_num = int(last_code[3:])
-                        next_num = last_num + 1
-                    except:
-                        next_num = 2
-                else:
-                    next_num = 2
-                
-                # Add formula for auto-incrementing employee codes in subsequent rows
-                # Row 3 onwards will auto-generate codes
-                for row_num in range(3, 102):  # Pre-fill 100 rows with formulas
-                    # Formula: If previous row has data in column B (First Name), generate next code
-                    if row_num == 3:
-                        # First auto-generated row uses the next number after last DB code
-                        ws.cell(row=row_num, column=1, value=f'EMP{next_num:03d}')
-                    else:
-                        # Subsequent rows: if previous row has first name, increment code
-                        formula = f'=IF(B{row_num-1}<>"","EMP"&TEXT(VALUE(RIGHT(A{row_num-1},3))+1,"000"),"")'
-                        ws.cell(row=row_num, column=1, value=formula)
+                    next_code = row.get('next_employee_code') if row else None
+                    if next_code:
+                        try:
+                            next_num = int(next_code)
+                        except:
+                            next_num = 2
+
+                # Pre-fill 100 rows with sequential numbers
+                for row_num in range(3, 102):
+                    formula = f'=IF(B{row_num-1}<>"",A{row_num-1}+1,"")'
+                    ws.cell(row=row_num, column=1, value=formula)
+                # Set first auto row explicitly
+                ws.cell(row=3, column=1, value=next_num)
+
             except Exception as e:
                 current_app.logger.warning(f"Could not fetch last employee code: {str(e)}")
-                # Fallback: just use simple incrementing from EMP002
                 for row_num in range(3, 102):
-                    if row_num == 3:
-                        ws.cell(row=row_num, column=1, value='EMP002')
-                    else:
-                        formula = f'=IF(B{row_num-1}<>"","EMP"&TEXT(VALUE(RIGHT(A{row_num-1},3))+1,"000"),"")'
-                        ws.cell(row=row_num, column=1, value=formula)
+                    ws.cell(row=row_num, column=1, value=f'=IF(B{row_num-1}<>"",A{row_num-1}+1,"")')
             
             # Add data validation (dropdowns) for specific columns
             from datetime import datetime, timedelta
             today = datetime.now()
             
-            # 1. Email validation (column D) - must contain @ and .
-            email_dv = DataValidation(type="custom", formula1='AND(ISNUMBER(SEARCH("@",D2)),ISNUMBER(SEARCH(".",D2)),LEN(D2)>5)', allow_blank=False)
+            # 1. Email validation (column G) - optional
+            email_dv = DataValidation(type="custom", formula1='OR(G2="",AND(ISNUMBER(SEARCH("@",G2)),ISNUMBER(SEARCH(".",G2)),LEN(G2)>5))', allow_blank=True)
             email_dv.error = 'Please enter a valid email address (must contain @ and domain)'
             email_dv.errorTitle = 'Invalid Email Format'
-            email_dv.prompt = 'Enter email in format: name@company.com'
-            email_dv.promptTitle = 'Email Address'
+            email_dv.prompt = 'Optional. Enter email in format: name@company.com. Leave empty for factory workers.'
+            email_dv.promptTitle = 'Email Address (Optional)'
             ws.add_data_validation(email_dv)
-            email_dv.add('D2:D1000')
+            email_dv.add('G2:G1000')
             
-            # 2. Phone validation (column E) - exactly 10 digits
+            # 2. Phone validation (column H) - exactly 10 digits
             phone_dv = DataValidation(type="textLength", operator="equal", formula1="10", allow_blank=True)
             phone_dv.error = 'Phone number must be exactly 10 digits'
             phone_dv.errorTitle = 'Invalid Phone Number'
             phone_dv.prompt = 'Enter 10-digit phone number (e.g., 9876543210)'
             phone_dv.promptTitle = 'Phone Number'
             ws.add_data_validation(phone_dv)
-            phone_dv.add('E2:E1000')
+            phone_dv.add('H2:H1000')
             
-            # 3. DOB validation (column F) - must be date in past, age 18-65
+            # 3. DOB validation (column I) - age 18-65
             min_dob = (today - timedelta(days=65*365)).strftime('%Y-%m-%d')
             max_dob = (today - timedelta(days=18*365)).strftime('%Y-%m-%d')
             dob_dv = DataValidation(type="date", operator="between", formula1=min_dob, formula2=max_dob, allow_blank=True)
@@ -1252,9 +1255,9 @@ def download_bulk_upload_template(template_type):
             dob_dv.prompt = 'Enter date in YYYY-MM-DD format (employee must be 18-65 years old)'
             dob_dv.promptTitle = 'Date of Birth'
             ws.add_data_validation(dob_dv)
-            dob_dv.add('F2:F1000')
+            dob_dv.add('I2:I1000')
             
-            # 4. Gender dropdown (column G)
+            # 4. Gender dropdown (column J)
             if len(genders) > 0:
                 gender_dv = DataValidation(type="list", formula1=f"'Reference Data'!$D$2:$D${len(genders)+1}", allow_blank=True)
                 gender_dv.error = 'Please select from the dropdown'
@@ -1262,27 +1265,27 @@ def download_bulk_upload_template(template_type):
                 gender_dv.prompt = 'Select gender from dropdown'
                 gender_dv.promptTitle = 'Gender'
                 ws.add_data_validation(gender_dv)
-                gender_dv.add(f'G2:G1000')
+                gender_dv.add('J2:J1000')
             
-            # 5. Address length validation (column H) - max 500 characters
+            # 5. Address length validation (column K) - max 500 characters
             address_dv = DataValidation(type="textLength", operator="lessThanOrEqual", formula1="500", allow_blank=True)
             address_dv.error = 'Address must be 500 characters or less'
             address_dv.errorTitle = 'Address Too Long'
             address_dv.prompt = 'Enter full address (max 500 characters)'
             address_dv.promptTitle = 'Address'
             ws.add_data_validation(address_dv)
-            address_dv.add('H2:H1000')
+            address_dv.add('K2:K1000')
             
-            # 6. Emergency contact phone validation (column I) - exactly 10 digits
+            # 6. Emergency contact phone validation (column L) - exactly 10 digits
             emerg_phone_dv = DataValidation(type="textLength", operator="equal", formula1="10", allow_blank=True)
             emerg_phone_dv.error = 'Emergency contact phone must be exactly 10 digits'
             emerg_phone_dv.errorTitle = 'Invalid Phone Number'
             emerg_phone_dv.prompt = 'Enter 10-digit phone number'
             emerg_phone_dv.promptTitle = 'Emergency Contact Phone'
             ws.add_data_validation(emerg_phone_dv)
-            emerg_phone_dv.add('I2:I1000')
+            emerg_phone_dv.add('L2:L1000')
             
-            # 7. Department dropdown (column J) - REQUIRED
+            # 7. Department dropdown (column D) - REQUIRED
             if len(departments) > 0:
                 dept_dv = DataValidation(type="list", formula1=f"'Reference Data'!$A$2:$A${len(departments)+1}", allow_blank=False)
                 dept_dv.error = 'Please select a valid department from the dropdown'
@@ -1290,9 +1293,9 @@ def download_bulk_upload_template(template_type):
                 dept_dv.prompt = 'Select department from dropdown (REQUIRED)'
                 dept_dv.promptTitle = 'Department'
                 ws.add_data_validation(dept_dv)
-                dept_dv.add(f'J2:J1000')
+                dept_dv.add('D2:D1000')
             
-            # 8. Designation dropdown (column K) - REQUIRED
+            # 8. Designation dropdown (column E) - REQUIRED
             if len(designations) > 0:
                 desig_dv = DataValidation(type="list", formula1=f"'Reference Data'!$B$2:$B${len(designations)+1}", allow_blank=False)
                 desig_dv.error = 'Please select a valid designation from the dropdown'
@@ -1300,9 +1303,9 @@ def download_bulk_upload_template(template_type):
                 desig_dv.prompt = 'Select designation from dropdown (REQUIRED)'
                 desig_dv.promptTitle = 'Designation'
                 ws.add_data_validation(desig_dv)
-                desig_dv.add(f'K2:K1000')
+                desig_dv.add('E2:E1000')
             
-            # 9. Date of Joining validation (column L) - must be valid date, not too far in future
+            # 9. Date of Joining validation (column F) - REQUIRED
             max_doj = (today + timedelta(days=90)).strftime('%Y-%m-%d')
             doj_dv = DataValidation(type="date", operator="lessThanOrEqual", formula1=max_doj, allow_blank=False)
             doj_dv.error = f'Date of joining must be on or before {max_doj}'
@@ -1310,7 +1313,7 @@ def download_bulk_upload_template(template_type):
             doj_dv.prompt = 'Enter date in YYYY-MM-DD format (REQUIRED, max 90 days in future)'
             doj_dv.promptTitle = 'Date of Joining'
             ws.add_data_validation(doj_dv)
-            doj_dv.add('L2:L1000')
+            doj_dv.add('F2:F1000')
             
             # 10. Work Location dropdown (column M)
             if len(locations) > 0:
@@ -1320,7 +1323,7 @@ def download_bulk_upload_template(template_type):
                 loc_dv.prompt = 'Select work location from dropdown'
                 loc_dv.promptTitle = 'Work Location'
                 ws.add_data_validation(loc_dv)
-                loc_dv.add(f'M2:M1000')
+                loc_dv.add('M2:M1000')
             
             # 11. Employment Type dropdown (column N)
             if len(emp_types) > 0:
@@ -1330,22 +1333,28 @@ def download_bulk_upload_template(template_type):
                 emp_type_dv.prompt = 'Select employment type from dropdown'
                 emp_type_dv.promptTitle = 'Employment Type'
                 ws.add_data_validation(emp_type_dv)
-                emp_type_dv.add(f'N2:N1000')
+                emp_type_dv.add('N2:N1000')
+
+            # 12. Shift dropdown (column O) - optional
+            if len(shifts) > 0:
+                shift_dv = DataValidation(type="list", formula1=f"'Reference Data'!$F$2:$F${len(shifts)+1}", allow_blank=True)
+                shift_dv.error = 'Please select from the dropdown'
+                shift_dv.errorTitle = 'Invalid Shift'
+                shift_dv.prompt = 'Select shift from dropdown (optional — leave blank for office employees)'
+                shift_dv.promptTitle = 'Shift'
+                ws.add_data_validation(shift_dv)
+                shift_dv.add('O2:O1000')
             
-            # 12. Add conditional formatting for duplicate emails
+            # Highlight duplicate emails in column G
             from openpyxl.formatting.rule import Rule
             from openpyxl.styles.differential import DifferentialStyle
             
-            # Highlight duplicate emails in red
             red_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
             red_font = Font(color='9C0006')
             dxf = DifferentialStyle(fill=red_fill, font=red_font)
             rule = Rule(type='expression', dxf=dxf)
-            rule.formula = ['COUNTIF($D$2:$D$1000,D2)>1']
-            ws.conditional_formatting.add('D2:D1000', rule)
-            
-            # Note: Removed yellow highlighting for missing fields as it was too intrusive
-            # Required fields are marked with RED headers instead
+            rule.formula = ['AND(G2<>"",COUNTIF($G$2:$G$1000,G2)>1)']
+            ws.conditional_formatting.add('G2:G1000', rule)
             
             # Auto-size columns
             for column in ws.columns:
@@ -1637,8 +1646,8 @@ def process_bulk_employee_upload():
         
         current_app.logger.info(f"Parsed columns: {list(df.columns)}")
         
-        # Required columns
-        required_cols = ['employee_code', 'first_name', 'last_name', 'email', 
+        # Required columns (last_name is optional - some workers may not have one)
+        required_cols = ['employee_code', 'first_name',
                         'department', 'designation', 'date_of_joining']
         missing_cols = [col for col in required_cols if col not in df.columns]
         
@@ -1682,6 +1691,28 @@ def process_bulk_employee_upload():
             
             if result['success']:
                 results['success'] += 1
+                # Assign shift if provided
+                shift_name = employee_data.get('shift_optional') or employee_data.get('shift')
+                if shift_name and shift_name.strip():
+                    try:
+                        from app.database.multi_tenant_executor import MultiTenantExecutor
+                        # Get shift_id by name
+                        shifts_res = MultiTenantExecutor.execute_procedure('proc_get_shift_definitions')
+                        shift_id = None
+                        if shifts_res.get('success') and shifts_res.get('data'):
+                            for s in shifts_res['data']:
+                                if s.get('shift_name', '').strip().lower() == shift_name.strip().lower():
+                                    shift_id = s['shift_id']
+                                    break
+                        if shift_id and result.get('employee_id'):
+                            MultiTenantExecutor.execute_procedure('proc_assign_employee_shift', {
+                                'employee_id': result['employee_id'],
+                                'shift_id': shift_id,
+                                'effective_from': employee_data.get('date_of_joining'),
+                                'assigned_by': None
+                            })
+                    except Exception as se:
+                        current_app.logger.warning(f"Shift assignment failed for row {row_num}: {se}")
             else:
                 results['failed'] += 1
                 results['errors'].append({

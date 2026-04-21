@@ -20,7 +20,9 @@ import {
     Stack,
     CircularProgress,
     Alert,
-    Autocomplete
+    Autocomplete,
+    Tabs,
+    Tab,
 } from '@mui/material';
 import {
     Assessment as ReportIcon,
@@ -28,6 +30,8 @@ import {
     TableChart as ExcelIcon,
     DateRange as DateIcon,
     FilterList as FilterIcon,
+    Factory as FactoryIcon,
+    Business as OfficeIcon,
 } from '@mui/icons-material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -35,8 +39,10 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import dayjs from 'dayjs';
 import attendanceService from '../../services/attendanceService';
 import employeeService from '../../services/employeeService';
+import { exportFactoryGridToExcel } from './factoryGridExport';
 
 const AttendanceReports = () => {
+    const [reportCategory, setReportCategory] = useState('factory'); // 'factory' or 'office'
     const [selectedReport, setSelectedReport] = useState('dateRange');
     const [dateRange, setDateRange] = useState({
         from: dayjs().startOf('month'),
@@ -55,6 +61,12 @@ const AttendanceReports = () => {
         absentDays: 0
     });
 
+    // Extra filters
+    const [filterShift, setFilterShift] = useState('');
+    const [filterType, setFilterType] = useState('');
+    const [filterMinHours, setFilterMinHours] = useState('');
+    const [shifts, setShifts] = useState([]);
+
     const reportTypes = [
         { value: 'dateRange', label: 'Date Range Report', icon: <DateIcon /> },
         { value: 'monthly', label: 'Monthly Summary', icon: <ReportIcon /> },
@@ -63,7 +75,15 @@ const AttendanceReports = () => {
     // Load employees on mount
     useEffect(() => {
         loadEmployees();
+        loadShifts();
     }, []);
+
+    const loadShifts = async () => {
+        try {
+            const res = await import('../../services/api').then(m => m.default.get('/attendance/shifts'));
+            if (res.success) setShifts(res.data?.shifts || []);
+        } catch { /* shifts optional */ }
+    };
 
     // Auto-load report data only after first manual load
     useEffect(() => {
@@ -143,6 +163,40 @@ const AttendanceReports = () => {
         }
     };
 
+    // Client-side filtering — zero extra API calls
+    const filteredData = reportData.filter(row => {
+        if (filterType && row.attendance_type && row.attendance_type !== filterType) return false;
+        if (filterMinHours) {
+            const hrs = row.effective_hours ?? (row.working_minutes ? row.working_minutes / 60 : null);
+            if (hrs === null || hrs < parseFloat(filterMinHours)) return false;
+        }
+        return true;
+    });
+
+    const fmtHours = (row) => {
+        const mins = row.effective_hours != null
+            ? Math.round(row.effective_hours * 60)
+            : row.working_minutes;
+        if (!mins) return '—';
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+    };
+
+    const fmtOT = (row) => {
+        if (!row.overtime_hours || row.overtime_hours <= 0) return '—';
+        const mins = Math.round(row.overtime_hours * 60);
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+    };
+
+    const typeColor = (t) => {
+        if (!t) return 'default';
+        const map = { FULL: 'success', HALF: 'warning', ABSENT: 'error', OVERTIME: 'info', PENDING: 'warning' };
+        return map[t] || 'default';
+    };
+
     const calculateSummary = (data) => {
         const totalRecords = data.length;
         const presentCount = data.filter(r => r.status === 'PRESENT' || r.status === 'LATE').length;
@@ -197,9 +251,15 @@ const AttendanceReports = () => {
         }
     };
 
-    const exportToExcel = () => {
+    const exportToExcel = async () => {
         try {
-            // Prepare data based on report type
+            // For Factory reports, use grid format for both monthly and date range
+            if (reportCategory === 'factory' && (selectedReport === 'monthly' || selectedReport === 'dateRange')) {
+                await exportFactoryGridExcel();
+                return;
+            }
+
+            // For other reports, use standard export
             let csvContent = '';
             let filename = '';
 
@@ -249,6 +309,38 @@ const AttendanceReports = () => {
         } catch (error) {
             console.error('Excel export failed:', error);
             alert('Failed to export to Excel');
+        }
+    };
+
+    const exportFactoryGridExcel = async () => {
+        try {
+            // Determine date range based on report type
+            let startDate, endDate;
+            
+            if (selectedReport === 'monthly') {
+                // For monthly report, use full month range
+                startDate = dateRange.from.startOf('month');
+                endDate = dateRange.from.endOf('month');
+            } else {
+                // For date range report, use selected dates
+                startDate = dateRange.from;
+                endDate = dateRange.to;
+            }
+            
+            const response = await import('../../services/api').then(m => m.default.get(
+                `/attendance/reports/summary?start_date=${startDate.format('YYYY-MM-DD')}&end_date=${endDate.format('YYYY-MM-DD')}&employee_type=Factory`
+            ));
+
+            if (!response.success || !response.data.records) {
+                alert('Failed to fetch grid data');
+                return;
+            }
+
+            // Use the new export function with beautiful formatting
+            await exportFactoryGridToExcel(startDate, endDate, response.data.records);
+        } catch (error) {
+            console.error('Factory grid export failed:', error);
+            alert('Failed to export factory grid: ' + error.message);
         }
     };
 
@@ -500,43 +592,46 @@ const AttendanceReports = () => {
             case 'dateRange':
                 return (
                     <TableContainer>
-                        <Table>
+                        <Table size="small">
                             <TableHead>
                                 <TableRow>
                                     <TableCell>Employee</TableCell>
                                     <TableCell>Date</TableCell>
                                     <TableCell>Status</TableCell>
+                                    <TableCell>Type</TableCell>
                                     <TableCell>Check-in</TableCell>
                                     <TableCell>Check-out</TableCell>
-                                    <TableCell align="center">Working Hours</TableCell>
+                                    <TableCell align="center">Hours</TableCell>
+                                    <TableCell align="center">Overtime</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {reportData.map((row, index) => (
+                                {filteredData.map((row, index) => (
                                     <TableRow key={index}>
                                         <TableCell>{row.employee_name}</TableCell>
                                         <TableCell>{row.attendance_date}</TableCell>
                                         <TableCell>
-                                            <Chip 
+                                            <Chip
                                                 label={row.status}
                                                 color={
                                                     row.status === 'PRESENT' ? 'success' :
                                                     row.status === 'ABSENT' ? 'error' :
                                                     row.status === 'LATE' ? 'warning' :
-                                                    row.status === 'WFH' ? 'info' :
-                                                    'default'
+                                                    row.status === 'WFH' ? 'info' : 'default'
                                                 }
                                                 size="small"
                                             />
                                         </TableCell>
-                                        <TableCell>{row.first_check_in || '-'}</TableCell>
-                                        <TableCell>{row.last_check_out || '-'}</TableCell>
-                                        <TableCell align="center">
-                                            {row.working_minutes 
-                                                ? `${Math.floor(row.working_minutes / 60)}h ${row.working_minutes % 60}m`
-                                                : '-'
+                                        <TableCell>
+                                            {row.attendance_type
+                                                ? <Chip label={row.attendance_type} color={typeColor(row.attendance_type)} size="small" variant="outlined" />
+                                                : '—'
                                             }
                                         </TableCell>
+                                        <TableCell>{row.first_check_in || '—'}</TableCell>
+                                        <TableCell>{row.last_check_out || '—'}</TableCell>
+                                        <TableCell align="center"><strong>{fmtHours(row)}</strong></TableCell>
+                                        <TableCell align="center">{fmtOT(row)}</TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -608,14 +703,47 @@ const AttendanceReports = () => {
             {/* Quick Info */}
             <Box sx={{ mb: { xs: 2, sm: 3 } }}>
                 <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                    Analytics & Reports
+                    {reportCategory === 'factory' ? 'Factory Worker Reports' : 'Office Employee Reports'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                    Generate comprehensive attendance reports and analytics
+                    {reportCategory === 'factory' 
+                        ? 'Generate reports for factory workers with shift-based attendance'
+                        : 'Generate reports for office employees with standard attendance'}
                 </Typography>
             </Box>
 
-            {/* Filters */}
+            {/* Category Tabs */}
+            <Paper sx={{ mb: 3 }}>
+                <Tabs
+                    value={reportCategory}
+                    onChange={(e, newValue) => setReportCategory(newValue)}
+                    sx={{ borderBottom: 1, borderColor: 'divider' }}
+                >
+                    <Tab 
+                        value="factory" 
+                        label={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <FactoryIcon />
+                                Factory Reports
+                            </Box>
+                        }
+                    />
+                    <Tab 
+                        value="office" 
+                        label={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <OfficeIcon />
+                                Office Reports
+                            </Box>
+                        }
+                    />
+                </Tabs>
+            </Paper>
+
+            {/* Render based on selected category */}
+            {/* Both Factory and Office use the same reports, just different data */}
+            <>
+                {/* Reports - Works for both Factory and Office */}
             <Paper sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 } }}>
                 <LocalizationProvider dateAdapter={AdapterDayjs}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -702,6 +830,36 @@ const AttendanceReports = () => {
                                 />
                             </Box>
 
+                            {/* Attendance Type filter */}
+                            <Box sx={{ flex: '1 1 160px', minWidth: '160px' }}>
+                                <FormControl fullWidth size="small">
+                                    <InputLabel>Attendance Type</InputLabel>
+                                    <Select value={filterType} label="Attendance Type"
+                                        onChange={e => setFilterType(e.target.value)}>
+                                        <MenuItem value="">All Types</MenuItem>
+                                        <MenuItem value="FULL">Full Day</MenuItem>
+                                        <MenuItem value="HALF">Half Day</MenuItem>
+                                        <MenuItem value="ABSENT">Absent</MenuItem>
+                                        <MenuItem value="OVERTIME">Overtime</MenuItem>
+                                        <MenuItem value="PENDING">Pending</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Box>
+
+                            {/* Min hours filter */}
+                            <Box sx={{ flex: '0 1 130px', minWidth: '120px' }}>
+                                <TextField
+                                    label="Min Hours"
+                                    type="number"
+                                    size="small"
+                                    value={filterMinHours}
+                                    onChange={e => setFilterMinHours(e.target.value)}
+                                    inputProps={{ min: 0, max: 24, step: 1 }}
+                                    placeholder="e.g. 6"
+                                    fullWidth
+                                />
+                            </Box>
+
                             <Box sx={{ flex: '0 0 auto' }}>
                                 <Stack direction="row" spacing={1}>
                                     <Button
@@ -750,12 +908,19 @@ const AttendanceReports = () => {
                         <Typography variant="h6" sx={{ fontWeight: 600 }}>
                             {reportTypes.find(type => type.value === selectedReport)?.label}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            {selectedReport === 'monthly' 
-                                ? `Month: ${dateRange.from.format('MMMM YYYY')}`
-                                : `Period: ${dateRange.from.format('MMM DD, YYYY')} to ${dateRange.to.format('MMM DD, YYYY')}`
-                            }
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            {filteredData.length !== reportData.length && (
+                                <Typography variant="body2" color="primary">
+                                    {filteredData.length} of {reportData.length} records
+                                </Typography>
+                            )}
+                            <Typography variant="body2" color="text.secondary">
+                                {selectedReport === 'monthly'
+                                    ? `Month: ${dateRange.from.format('MMMM YYYY')}`
+                                    : `Period: ${dateRange.from.format('MMM DD, YYYY')} to ${dateRange.to.format('MMM DD, YYYY')}`
+                                }
+                            </Typography>
+                        </Box>
                     </Box>
                 </Box>
 
@@ -809,6 +974,7 @@ const AttendanceReports = () => {
                     </Box>
                 </Box>
             </Paper>
+            </>
         </Box>
     );
 };

@@ -14,13 +14,32 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
         records.forEach(record => {
             if (!employeeMap[record.employee_id]) {
                 employeeMap[record.employee_id] = {
+                    employee_code: record.employee_code || '',
                     name: record.employee_name,
                     department: record.department || 'N/A',
-                    days: {}
+                    days: {},
+                    hasPresent: false
                 };
             }
             const dateKey = dayjs(record.attendance_date).format('YYYY-MM-DD');
             employeeMap[record.employee_id].days[dateKey] = record.display_value || '';
+            
+            // Track if employee has any present days
+            if (record.display_value && record.display_value !== 'A') {
+                employeeMap[record.employee_id].hasPresent = true;
+            }
+        });
+
+        // Sort employees: present first (sorted by emp code), then absent (sorted by emp code)
+        const sortedEmployees = Object.entries(employeeMap).sort((a, b) => {
+            // Sort by hasPresent (true first), then by employee code
+            if (a[1].hasPresent !== b[1].hasPresent) {
+                return b[1].hasPresent ? 1 : -1;
+            }
+            // Within same group, sort by employee code numerically
+            const codeA = parseInt(a[1].employee_code) || 0;
+            const codeB = parseInt(b[1].employee_code) || 0;
+            return codeA - codeB;
         });
 
         const totalEmployees = Object.keys(employeeMap).length;
@@ -46,6 +65,7 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
         const columns = [
             { header: 'DEPARTMENT', key: 'department', width: 20 },
             { header: 'NAME', key: 'name', width: 25 },
+            { header: 'EMP CODE', key: 'empCode', width: 12 },
             { header: 'BANK/CASH', key: 'bankCash', width: 12 }
         ];
         
@@ -93,25 +113,28 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
 
         // Add employee rows
         let rowIndex = 0;
-        Object.values(employeeMap).forEach(emp => {
+        sortedEmployees.forEach(([empId, emp]) => {
             let totalHours = 0;
             let workingDays = 0;
             
             const rowData = {
                 department: emp.department,
                 name: emp.name,
-                bankCash: 'BANK'
+                empCode: emp.employee_code,
+                bankCash: '' // Keep blank as requested
             };
             
             dateColumns.forEach(col => {
                 const value = emp.days[col.dateKey] || '';
                 rowData[`day_${col.day}`] = value;
                 
+                // Calculate totals from display value
                 if (value && !isNaN(value)) {
+                    // Numeric value = hours worked (already includes OT from backend)
                     totalHours += parseInt(value);
                     workingDays++;
                 } else if (value === 'HD') {
-                    workingDays += 0.5;
+                    workingDays += 1; // Count as 1 day
                 } else if (value === 'P') {
                     workingDays++;
                 }
@@ -153,8 +176,8 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
                     right: { style: 'thin', color: { argb: 'FFD3D3D3' } }
                 };
                 
-                // Bold and left-align department and name columns
-                if (colNumber === 1 || colNumber === 2) {
+                // Bold and left-align department, name, and emp code columns
+                if (colNumber === 1 || colNumber === 2 || colNumber === 3) {
                     cell.font = { bold: true, size: 11 };
                     cell.alignment = {
                         vertical: 'middle',
@@ -188,7 +211,7 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
                         fgColor: { argb: 'FFD9E1F2' }
                     };
                     cell.font = { bold: true, color: { argb: 'FF1F4E78' } };
-                } else if (cellValue && !isNaN(cellValue) && colNumber > 3 && colNumber <= 3 + dateColumns.length) {
+                } else if (cellValue && !isNaN(cellValue) && colNumber > 4 && colNumber <= 4 + dateColumns.length) {
                     // Hours worked - green tint
                     cell.fill = {
                         type: 'pattern',
@@ -199,7 +222,7 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
                 }
                 
                 // Highlight totals columns
-                if (colNumber === 3 + dateColumns.length + 1 || colNumber === 3 + dateColumns.length + 2) {
+                if (colNumber === 4 + dateColumns.length + 1 || colNumber === 4 + dateColumns.length + 2) {
                     cell.fill = {
                         type: 'pattern',
                         pattern: 'solid',
@@ -275,6 +298,7 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
             const rowData = {
                 department: footer.label,
                 name: '',
+                empCode: '',
                 bankCash: ''
             };
             

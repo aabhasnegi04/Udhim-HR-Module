@@ -6,7 +6,7 @@ def success_response(message="Success", data=None):
     return jsonify({
         "success": True,
         "message": message,
-        "data": data or {}
+        "data": data if data is not None else {}
     })
 
 

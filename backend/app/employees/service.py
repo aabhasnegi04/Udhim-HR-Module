@@ -326,6 +326,7 @@ class EmployeeService:
             employment_type = employee_data.get('employment_type') or None
             work_location = employee_data.get('work_location') or None
             manager_id = employee_data.get('manager_id') or None
+            worker_category = employee_data.get('worker_category') or None
             
             current_app.logger.info(f"Updating employee ID: {employee_id}")
             current_app.logger.info(f"DOB: {dob}, Date of Joining: {date_of_joining}")
@@ -345,7 +346,8 @@ class EmployeeService:
                 'date_of_joining': date_of_joining,
                 'employment_type': employment_type,
                 'work_location': work_location,
-                'manager_id': manager_id
+                'manager_id': manager_id,
+                'worker_category': worker_category
             }
             
             result = MultiTenantExecutor.execute_procedure('proc_update_employee', parameters)

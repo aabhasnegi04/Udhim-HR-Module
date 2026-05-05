@@ -74,6 +74,20 @@ const EmployeeList = () => {
             const result = await employeeService.getEmployees();
             
             if (result.success) {
+                
+                // Check for duplicates
+                const employeeIds = result.data?.map(e => e.employee_id) || [];
+                const uniqueIds = new Set(employeeIds);
+                if (employeeIds.length !== uniqueIds.size) {
+                    console.warn('⚠️ DUPLICATE EMPLOYEES DETECTED!');
+                    console.warn('Total records:', employeeIds.length);
+                    console.warn('Unique IDs:', uniqueIds.size);
+                    
+                    // Find duplicates
+                    const duplicates = employeeIds.filter((id, index) => employeeIds.indexOf(id) !== index);
+                    console.warn('Duplicate IDs:', duplicates);
+                }
+                
                 setEmployees(result.data);
             } else {
                 setError(result.error);

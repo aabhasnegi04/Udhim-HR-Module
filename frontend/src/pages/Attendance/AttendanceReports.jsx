@@ -41,8 +41,8 @@ import attendanceService from '../../services/attendanceService';
 import employeeService from '../../services/employeeService';
 import { exportFactoryGridToExcel } from './factoryGridExport';
 
-const AttendanceReports = () => {
-    const [reportCategory, setReportCategory] = useState('factory'); // 'factory' or 'office'
+const AttendanceReports = ({ attendanceType = 'office' }) => {
+    const [reportCategory, setReportCategory] = useState(attendanceType); // Sync with parent
     const [selectedReport, setSelectedReport] = useState('dateRange');
     const [dateRange, setDateRange] = useState({
         from: dayjs().startOf('month'),
@@ -56,8 +56,8 @@ const AttendanceReports = () => {
     const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
     const [summary, setSummary] = useState({
         totalRecords: 0,
-        avgAttendance: 0,
-        lateInstances: 0,
+        presentDays: 0,
+        pendingRecords: 0,
         absentDays: 0
     });
 
@@ -65,7 +65,9 @@ const AttendanceReports = () => {
     const [filterShift, setFilterShift] = useState('');
     const [filterType, setFilterType] = useState('');
     const [filterMinHours, setFilterMinHours] = useState('');
+    const [filterDepartment, setFilterDepartment] = useState('');
     const [shifts, setShifts] = useState([]);
+    const [departments, setDepartments] = useState([]);
 
     const reportTypes = [
         { value: 'dateRange', label: 'Date Range Report', icon: <DateIcon /> },
@@ -77,6 +79,17 @@ const AttendanceReports = () => {
         loadEmployees();
         loadShifts();
     }, []);
+
+    // Sync reportCategory with parent attendanceType
+    useEffect(() => {
+        setReportCategory(attendanceType);
+        loadEmployees(); // Reload employees when category changes
+    }, [attendanceType]);
+
+    // Reload employees when reportCategory changes
+    useEffect(() => {
+        loadEmployees();
+    }, [reportCategory]);
 
     const loadShifts = async () => {
         try {
@@ -91,13 +104,18 @@ const AttendanceReports = () => {
             dayjs.isDayjs(dateRange.from) && dayjs.isDayjs(dateRange.to)) {
             loadReportData();
         }
-    }, [selectedReport, dateRange.from?.format('YYYY-MM-DD'), dateRange.to?.format('YYYY-MM-DD'), selectedEmployee?.employee_id]);
+    }, [selectedReport, dateRange.from?.format('YYYY-MM-DD'), dateRange.to?.format('YYYY-MM-DD'), selectedEmployee?.employee_id, filterDepartment, reportCategory]);
 
     const loadEmployees = async () => {
         try {
             const result = await employeeService.getAllEmployees();
             if (result.success) {
-                setEmployees(result.data || []);
+                const allEmployees = result.data || [];
+                setEmployees(allEmployees);
+                
+                // Extract unique departments from all employees
+                const uniqueDepts = [...new Set(allEmployees.map(e => e.department).filter(Boolean))];
+                setDepartments(uniqueDepts);
             }
         } catch (error) {
             console.error('Failed to load employees:', error);
@@ -126,12 +144,16 @@ const AttendanceReports = () => {
             }
 
             if (selectedReport === 'dateRange') {
+                const workerCategory = reportCategory === 'factory' ? 'FACTORY' : 'OFFICE';
+                
                 const result = await attendanceService.getAttendanceByDateRange(
                     dateRange.from.format('YYYY-MM-DD'),
                     dateRange.to.format('YYYY-MM-DD'),
-                    selectedEmployee?.employee_id
+                    selectedEmployee?.employee_id,
+                    workerCategory,
+                    filterDepartment || null
                 );
-
+                
                 if (result.success) {
                     setReportData(result.data || []);
                     calculateSummary(result.data || []);
@@ -200,14 +222,14 @@ const AttendanceReports = () => {
     const calculateSummary = (data) => {
         const totalRecords = data.length;
         const presentCount = data.filter(r => r.status === 'PRESENT' || r.status === 'LATE').length;
-        const lateCount = data.filter(r => r.status === 'LATE').length;
+        const pendingCount = data.filter(r => r.status === 'PENDING').length;
         const absentCount = data.filter(r => r.status === 'ABSENT').length;
         const avgAttendance = totalRecords > 0 ? Math.round((presentCount / totalRecords) * 100) : 0;
 
         setSummary({
             totalRecords,
-            avgAttendance,
-            lateInstances: lateCount,
+            presentDays: presentCount,
+            pendingRecords: pendingCount,
             absentDays: absentCount
         });
     };
@@ -259,7 +281,7 @@ const AttendanceReports = () => {
                 return;
             }
 
-            // For other reports, use standard export
+            // For other reports, use standard export with filtered data
             let csvContent = '';
             let filename = '';
 
@@ -269,8 +291,8 @@ const AttendanceReports = () => {
                 // CSV Header
                 csvContent = 'Employee,Date,Status,Check-in,Check-out,Working Hours\n';
                 
-                // CSV Data
-                reportData.forEach(row => {
+                // CSV Data - use filteredData instead of reportData
+                filteredData.forEach(row => {
                     const workingHours = row.working_minutes 
                         ? `${Math.floor(row.working_minutes / 60)}h ${row.working_minutes % 60}m`
                         : '-';
@@ -283,8 +305,8 @@ const AttendanceReports = () => {
                 // CSV Header
                 csvContent = 'Employee,Present,Absent,Late,WFH,Working Days,Attendance %\n';
                 
-                // CSV Data
-                reportData.forEach(row => {
+                // CSV Data - use filteredData instead of reportData
+                filteredData.forEach(row => {
                     const attendancePercent = row.working_days > 0
                         ? Math.round((row.present_days / row.working_days) * 100)
                         : 0;
@@ -327,8 +349,23 @@ const AttendanceReports = () => {
                 endDate = dateRange.to;
             }
             
+            // Build query parameters with filters
+            const params = new URLSearchParams({
+                start_date: startDate.format('YYYY-MM-DD'),
+                end_date: endDate.format('YYYY-MM-DD'),
+                employee_type: 'Factory'
+            });
+            
+            // Add optional filters
+            if (selectedEmployee?.employee_id) {
+                params.append('employee_id', selectedEmployee.employee_id);
+            }
+            if (filterDepartment) {
+                params.append('department', filterDepartment);
+            }
+            
             const response = await import('../../services/api').then(m => m.default.get(
-                `/attendance/reports/summary?start_date=${startDate.format('YYYY-MM-DD')}&end_date=${endDate.format('YYYY-MM-DD')}&employee_type=Factory`
+                `/attendance/reports/summary?${params.toString()}`
             ));
 
             if (!response.success || !response.data.records) {
@@ -450,7 +487,8 @@ const AttendanceReports = () => {
                     <tbody>
                 `;
                 
-                reportData.forEach(row => {
+                // Use filteredData instead of reportData
+                filteredData.forEach(row => {
                     const workingHours = row.working_minutes 
                         ? `${Math.floor(row.working_minutes / 60)}h ${row.working_minutes % 60}m`
                         : '-';
@@ -484,7 +522,8 @@ const AttendanceReports = () => {
                     <tbody>
                 `;
                 
-                reportData.forEach(row => {
+                // Use filteredData instead of reportData
+                filteredData.forEach(row => {
                     const attendancePercent = row.working_days > 0
                         ? Math.round((row.present_days / row.working_days) * 100)
                         : 0;
@@ -712,38 +751,7 @@ const AttendanceReports = () => {
                 </Typography>
             </Box>
 
-            {/* Category Tabs */}
-            <Paper sx={{ mb: 3 }}>
-                <Tabs
-                    value={reportCategory}
-                    onChange={(e, newValue) => setReportCategory(newValue)}
-                    sx={{ borderBottom: 1, borderColor: 'divider' }}
-                >
-                    <Tab 
-                        value="factory" 
-                        label={
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <FactoryIcon />
-                                Factory Reports
-                            </Box>
-                        }
-                    />
-                    <Tab 
-                        value="office" 
-                        label={
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <OfficeIcon />
-                                Office Reports
-                            </Box>
-                        }
-                    />
-                </Tabs>
-            </Paper>
-
-            {/* Render based on selected category */}
-            {/* Both Factory and Office use the same reports, just different data */}
-            <>
-                {/* Reports - Works for both Factory and Office */}
+            {/* Reports - Works for both Factory and Office */}
             <Paper sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 } }}>
                 <LocalizationProvider dateAdapter={AdapterDayjs}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -828,6 +836,20 @@ const AttendanceReports = () => {
                                         <TextField {...params} label="Employee (Optional)" />
                                     )}
                                 />
+                            </Box>
+
+                            {/* Department filter */}
+                            <Box sx={{ flex: '1 1 160px', minWidth: '160px' }}>
+                                <FormControl fullWidth size="small">
+                                    <InputLabel>Department</InputLabel>
+                                    <Select value={filterDepartment} label="Department"
+                                        onChange={e => setFilterDepartment(e.target.value)}>
+                                        <MenuItem value="">All Departments</MenuItem>
+                                        {departments.map(dept => (
+                                            <MenuItem key={dept} value={dept}>{dept}</MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
                             </Box>
 
                             {/* Attendance Type filter */}
@@ -933,7 +955,7 @@ const AttendanceReports = () => {
                     <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                         <Box sx={{ flex: '1 1 150px', minWidth: '150px' }}>
                             <Card sx={{ textAlign: 'center', p: 2 }}>
-                                <Typography variant="h6" color="success.main">
+                                <Typography variant="h6" color="text.primary">
                                     {summary.totalRecords}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">
@@ -943,21 +965,21 @@ const AttendanceReports = () => {
                         </Box>
                         <Box sx={{ flex: '1 1 150px', minWidth: '150px' }}>
                             <Card sx={{ textAlign: 'center', p: 2 }}>
-                                <Typography variant="h6" color="primary.main">
-                                    {summary.avgAttendance}%
+                                <Typography variant="h6" color="success.main">
+                                    {summary.presentDays}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                    Avg Attendance
+                                    Present Days
                                 </Typography>
                             </Card>
                         </Box>
                         <Box sx={{ flex: '1 1 150px', minWidth: '150px' }}>
                             <Card sx={{ textAlign: 'center', p: 2 }}>
                                 <Typography variant="h6" color="warning.main">
-                                    {summary.lateInstances}
+                                    {summary.pendingRecords}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                    Late Instances
+                                    Pending Records
                                 </Typography>
                             </Card>
                         </Box>
@@ -974,7 +996,6 @@ const AttendanceReports = () => {
                     </Box>
                 </Box>
             </Paper>
-            </>
         </Box>
     );
 };

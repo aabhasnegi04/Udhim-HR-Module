@@ -1150,6 +1150,13 @@ def download_bulk_upload_template(template_type):
             for idx, shift in enumerate(shifts, start=2):
                 ref_sheet[f'F{idx}'] = shift
 
+            # Add worker categories to reference sheet
+            ref_sheet['G1'] = 'Worker Category'
+            ref_sheet['G1'].font = Font(bold=True)
+            worker_categories = ['OFFICE', 'FACTORY']
+            for idx, category in enumerate(worker_categories, start=2):
+                ref_sheet[f'G{idx}'] = category
+
             # Define headers for main sheet
             headers = [
                 # Required (red) - left side
@@ -1157,7 +1164,7 @@ def download_bulk_upload_template(template_type):
                 'Department', 'Designation', 'Date of Joining (YYYY-MM-DD)',
                 # Optional (blue) - right side
                 'Email (optional)', 'Phone', 'DOB (YYYY-MM-DD)', 'Gender', 'Address',
-                'Emergency Contact Phone', 'Work Location', 'Employment Type', 'Shift (optional)'
+                'Emergency Contact Phone', 'Work Location', 'Employment Type', 'Worker Category', 'Shift (optional)'
             ]
 
             # Mark required fields (first 6 columns, excluding Last Name at index 2)
@@ -1192,6 +1199,7 @@ def download_bulk_upload_template(template_type):
                 '9876543212',
                 locations[0] if locations else 'Mumbai Office',
                 'Full-Time',
+                'OFFICE',  # Worker Category
                 shifts[0] if shifts else ''
             ]
             
@@ -1343,7 +1351,16 @@ def download_bulk_upload_template(template_type):
                 shift_dv.prompt = 'Select shift from dropdown (optional — leave blank for office employees)'
                 shift_dv.promptTitle = 'Shift'
                 ws.add_data_validation(shift_dv)
-                shift_dv.add('O2:O1000')
+                shift_dv.add('P2:P1000')  # Changed to column P since Worker Category is now column O
+
+            # 13. Worker Category dropdown (column O) - optional
+            worker_cat_dv = DataValidation(type="list", formula1="'Reference Data'!$G$2:$G$3", allow_blank=True)
+            worker_cat_dv.error = 'Please select OFFICE or FACTORY'
+            worker_cat_dv.errorTitle = 'Invalid Worker Category'
+            worker_cat_dv.prompt = 'Select OFFICE or FACTORY (optional — defaults to OFFICE if blank)'
+            worker_cat_dv.promptTitle = 'Worker Category'
+            ws.add_data_validation(worker_cat_dv)
+            worker_cat_dv.add('O2:O1000')
             
             # Highlight duplicate emails in column G
             from openpyxl.formatting.rule import Rule

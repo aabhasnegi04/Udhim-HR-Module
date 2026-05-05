@@ -6,6 +6,53 @@ from datetime import datetime, date
 class AttendanceService:
     """Attendance service layer for attendance management"""
     
+    # ACTIVE EMPLOYEES
+    @staticmethod
+    def get_all_active_employees():
+        """Get all active employees with basic info"""
+        try:
+            result = MultiTenantExecutor.execute_query("""
+                SELECT 
+                    e.employee_id,
+                    e.employee_code,
+                    CONCAT(ep.first_name, ' ', ep.last_name) AS employee_name,
+                    eo.department,
+                    eo.worker_category,
+                    sd.shift_name,
+                    CONVERT(VARCHAR(8), sd.start_time, 108) AS start_time,
+                    CONVERT(VARCHAR(8), sd.end_time, 108) AS end_time
+                FROM employees e
+                INNER JOIN employee_personal ep ON e.employee_id = ep.employee_id
+                LEFT JOIN employee_official eo ON e.employee_id = eo.employee_id
+                LEFT JOIN employee_shift_assignment esa ON e.employee_id = esa.employee_id 
+                    AND esa.effective_from <= CAST(GETDATE() AS DATE)
+                    AND (esa.effective_to IS NULL OR esa.effective_to >= CAST(GETDATE() AS DATE))
+                LEFT JOIN shift_definitions sd ON esa.shift_id = sd.shift_id
+                WHERE e.status = 'ACTIVE'
+                ORDER BY ep.first_name, ep.last_name
+            """)
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "message": "Active employees retrieved successfully",
+                    "data": result["data"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to retrieve active employees",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Get active employees error: {str(e)}")
+            return {
+                "success": False,
+                "message": "Failed to retrieve active employees",
+                "data": None
+            }
+    
     # FACE RECOGNITION / RAW LOGGING
     @staticmethod
     def mark_attendance_raw(attendance_data):
@@ -430,8 +477,8 @@ class AttendanceService:
             }
     
     @staticmethod
-    def get_attendance_by_date_range(start_date, end_date, employee_id=None):
-        """Get attendance records for a date range"""
+    def get_attendance_by_date_range(start_date, end_date, employee_id=None, worker_category=None, department=None):
+        """Get attendance records for a date range with optional filters"""
         try:
             parameters = {
                 'start_date': start_date,
@@ -446,6 +493,14 @@ class AttendanceService:
                 # Format date and time values for frontend
                 formatted_data = []
                 for record in result["data"]:
+                    # Filter by worker_category if specified
+                    if worker_category and record.get('worker_category') != worker_category:
+                        continue
+                    
+                    # Filter by department if specified
+                    if department and record.get('department') != department:
+                        continue
+                    
                     formatted_record = dict(record)
                     
                     # Format date (DATE type)
@@ -651,6 +706,50 @@ class AttendanceService:
                 
         except Exception as e:
             current_app.logger.error(f"Upsert attendance record error: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Attendance service error: {str(e)}",
+                "data": None
+            }
+    
+    # CURRENTLY PRESENT
+    @staticmethod
+    def get_currently_present_employees(target_date=None):
+        """Get employees who are currently present (checked in but not checked out)"""
+        try:
+            parameters = {}
+            if target_date:
+                parameters['target_date'] = target_date
+            
+            result = MultiTenantExecutor.execute_procedure('proc_get_currently_present_employees', parameters)
+            
+            if result["success"]:
+                # Convert datetime/time fields to strings for JSON serialization
+                formatted_data = []
+                for record in result["data"]:
+                    formatted_record = dict(record)
+                    
+                    # Convert time fields
+                    for field in ['start_time', 'end_time', 'check_in_time', 'last_seen_time']:
+                        if field in formatted_record and formatted_record[field]:
+                            formatted_record[field] = str(formatted_record[field])
+                    
+                    formatted_data.append(formatted_record)
+                
+                return {
+                    "success": True,
+                    "message": "Currently present employees retrieved successfully",
+                    "data": formatted_data
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to retrieve currently present employees",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Get currently present employees error: {str(e)}")
             return {
                 "success": False,
                 "message": f"Attendance service error: {str(e)}",

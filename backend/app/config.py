@@ -14,7 +14,7 @@ class Config:
     
     # JWT
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'jwt-secret-key'
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(seconds=int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 3600)))
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(seconds=int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 28800)))  # Default 8 hours
     JWT_ALGORITHM = 'HS256'
     
     # Master Database (Multi-Tenant Control)
@@ -63,9 +63,8 @@ class Config:
             f"PWD={self.DB_PASSWORD};"
             "TrustServerCertificate=yes;"
             "Encrypt=no;"
-            "Connection Timeout=60;"
-            "Command Timeout=120;"
-            "LoginTimeout=60;"
+            "Connection Timeout=15;"
+            "LoginTimeout=15;"
         )
     
     @staticmethod

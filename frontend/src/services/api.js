@@ -5,23 +5,23 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
 class ApiService {
   constructor() {
     this.baseURL = API_BASE_URL;
-    this.token = sessionStorage.getItem('hrms_token');
+    this.token = localStorage.getItem('hrms_token');
   }
 
   // Set authentication token
   setToken(token) {
     this.token = token;
     if (token) {
-      sessionStorage.setItem('hrms_token', token);
+      localStorage.setItem('hrms_token', token);
     } else {
-      sessionStorage.removeItem('hrms_token');
+      localStorage.removeItem('hrms_token');
     }
   }
 
   // Get authentication headers
   getHeaders(isFormData = false) {
-    // Always get the latest token from sessionStorage
-    this.token = sessionStorage.getItem('hrms_token');
+    // Always get the latest token from localStorage
+    this.token = localStorage.getItem('hrms_token');
     
     const headers = {};
 
@@ -161,7 +161,7 @@ class ApiService {
   // Handle token expiration - clear session and redirect to login
   handleTokenExpiration() {
     // Clear all session data
-    sessionStorage.removeItem('hrms_token');
+    localStorage.removeItem('hrms_token');
     sessionStorage.removeItem('hrms_user');
     localStorage.removeItem('preferred_view');
     
@@ -175,8 +175,15 @@ class ApiService {
   }
 
   // GET request
-  async get(endpoint) {
-    return this.request(endpoint, { method: 'GET' });
+  async get(endpoint, options = {}) {
+    // Handle query parameters
+    if (options.params) {
+      const queryString = new URLSearchParams(options.params).toString();
+      endpoint = `${endpoint}?${queryString}`;
+      delete options.params; // Remove params from options as it's now in the URL
+    }
+    
+    return this.request(endpoint, { method: 'GET', ...options });
   }
 
   // POST request

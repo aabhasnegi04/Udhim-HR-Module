@@ -20,6 +20,7 @@ import {
     EventAvailable as AttendanceIcon,
     BeachAccess as LeaveIcon,
     AccountBalance as PayrollIcon,
+    Factory as FactoryIcon,
     ExitToApp as ExitToAppIcon,
     AdminPanelSettings as AdminIcon,
     Settings as SetupIcon,
@@ -28,6 +29,7 @@ import {
     Close as CloseIcon,
     Description as DocumentsIcon,
     Policy as PolicyIcon,
+    Assessment as ReportsIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -71,6 +73,7 @@ const hrMenuItems = [
     { id: 'documents', label: 'Documents', icon: <DocumentsIcon />, path: '/documents' },
     { id: 'setup', label: 'Setup', icon: <SetupIcon />, path: '/setup' },
     { id: 'admin', label: 'Admin', icon: <AdminIcon />, path: '/admin' },
+    { id: 'reports', label: 'Reports', icon: <ReportsIcon />, path: '/reports' },
 ];
 
 const managerMenuItems = [

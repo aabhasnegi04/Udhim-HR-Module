@@ -64,6 +64,7 @@ def create_app(config_class=Config):
     from app.orgchart.routes import orgchart_bp
     from app.dashboard.routes import dashboard_bp
     from app.payroll.routes import payroll_bp
+    from app.factory_payroll.routes import factory_payroll_bp
     from app.documents.routes import documents_bp
     from app.documents.employee_doc_routes import employee_docs_bp
     from app.notifications.routes import notifications_bp
@@ -79,6 +80,7 @@ def create_app(config_class=Config):
     app.register_blueprint(orgchart_bp, url_prefix='/orgchart')
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
     app.register_blueprint(payroll_bp, url_prefix='/payroll')
+    app.register_blueprint(factory_payroll_bp, url_prefix='/factory-payroll')
     app.register_blueprint(documents_bp, url_prefix='/documents')
     app.register_blueprint(employee_docs_bp, url_prefix='/documents')
     app.register_blueprint(notifications_bp, url_prefix='/notifications')

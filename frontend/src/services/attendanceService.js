@@ -116,6 +116,36 @@ class AttendanceService {
     }
   }
 
+  async getCurrentlyPresent(date = null) {
+    try {
+      const url = date ? `/attendance/currently-present?date=${date}` : '/attendance/currently-present';
+      
+      const response = await apiService.get(url);
+      
+      if (response.success) {
+        return { success: true, data: response.data };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      console.error('Get currently present failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getAllActiveEmployees() {
+    try {
+      const response = await apiService.get('/attendance/all-active-employees');
+      
+      if (response.success) {
+        return { success: true, data: response.data };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      console.error('Get all active employees failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   async getAttendanceByDate(date) {
     try {
       const response = await apiService.get(`/attendance/date/${date}`);
@@ -129,11 +159,17 @@ class AttendanceService {
     }
   }
 
-  async getAttendanceByDateRange(startDate, endDate, employeeId = null) {
+  async getAttendanceByDateRange(startDate, endDate, employeeId = null, workerCategory = null, department = null) {
     try {
       let url = `/attendance/reports/date-range?start_date=${startDate}&end_date=${endDate}`;
       if (employeeId) {
         url += `&employee_id=${employeeId}`;
+      }
+      if (workerCategory) {
+        url += `&worker_category=${workerCategory}`;
+      }
+      if (department) {
+        url += `&department=${encodeURIComponent(department)}`;
       }
       
       const response = await apiService.get(url);

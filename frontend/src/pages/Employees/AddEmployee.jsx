@@ -74,6 +74,7 @@ const AddEmployee = () => {
         designation: '',
         join_date: new Date().toISOString().split('T')[0], // Changed from date_of_joining
         employment_type: '',
+        worker_category: 'OFFICE', // NEW: OFFICE or FACTORY
         work_location: '',
         salary: '',
         
@@ -714,6 +715,27 @@ const AddEmployee = () => {
                                     ))}
                                 </Select>
                             </FormControl>
+                        </Box>
+                    </Box>
+
+                    {/* Row 2.5: Worker Category */}
+                    <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
+                        <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
+                            <FormControl fullWidth required>
+                                <InputLabel>Worker Category</InputLabel>
+                                <Select
+                                    name="worker_category"
+                                    value={formData.worker_category}
+                                    onChange={handleInputChange}
+                                    label="Worker Category"
+                                >
+                                    <MenuItem value="OFFICE">Office Employee (Monthly Salary)</MenuItem>
+                                    <MenuItem value="FACTORY">Factory Worker (Daily Wage)</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Box>
+                        <Box sx={{ flex: '1 1 300px', minWidth: '250px' }}>
+                            {/* Empty box for layout balance */}
                         </Box>
                     </Box>
 

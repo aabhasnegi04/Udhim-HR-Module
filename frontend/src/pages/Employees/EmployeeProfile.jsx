@@ -169,6 +169,7 @@ const EmployeeProfile = () => {
                     address: result.data.address || '',
                     emergencyContact: result.data.emergency_contact || '',
                     employmentType: result.data.employment_type || '',
+                    workerCategory: result.data.worker_category || 'OFFICE', // NEW
                     workLocation: result.data.work_location || '',
                     manager_id: result.data.manager_id,
                     reportingManager: result.data.manager_id ? `Manager ID: ${result.data.manager_id}` : 'Not assigned',
@@ -275,6 +276,7 @@ const EmployeeProfile = () => {
                 designation: editedData.designation,
                 date_of_joining: formatDateForBackend(editedData.date_of_joining),
                 employment_type: editedData.employmentType || null,
+                worker_category: editedData.workerCategory || 'OFFICE', // NEW
                 work_location: editedData.workLocation || null,
                 manager_id: editedData.manager_id || null
             };

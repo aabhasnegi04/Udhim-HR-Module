@@ -6,7 +6,9 @@ import {
     Tabs,
     Tab,
     Stack,
-    Alert
+    Alert,
+    ToggleButton,
+    ToggleButtonGroup
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -20,6 +22,9 @@ import {
     Logout as CheckOutIcon,
     Warning as WarningIcon,
     PendingActions as PendingIcon,
+    People as PeopleIcon,
+    Business as OfficeIcon,
+    Factory as FactoryIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useProfileSwitching } from '../context/ProfileSwitchingContext';
@@ -34,6 +39,7 @@ import Regularization from './Attendance/Regularization';
 import HolidayManagement from './Attendance/HolidayManagement';
 import AttendanceReports from './Attendance/AttendanceReports';
 import AttendanceCheckIn from './Attendance/AttendanceCheckIn';
+import CurrentlyPresent from './Attendance/CurrentlyPresent';
 import ErrorBoundary from '../components/ErrorBoundary';
 import PendingAttendance from './Attendance/PendingAttendance';
 
@@ -41,13 +47,33 @@ const Attendance = () => {
     const { user, isEmployeeActive } = useAuth();
     const { currentView, isEmployeeView, isHRView, isManagerView } = useProfileSwitching();
     const location = useLocation();
+    
+    // Check if navigation state has attendanceType and tab
+    const navState = location.state || {};
+    
+    const [attendanceType, setAttendanceType] = useState(() => {
+        return navState.attendanceType || 'office';
+    });
+    
     const [activeTab, setActiveTab] = useState(() => {
+        // First check navigation state
+        if (navState.tab !== undefined) {
+            return navState.tab;
+        }
+        // Then check URL params
         const params = new URLSearchParams(location.search);
         const t = parseInt(params.get('tab'), 10);
         return isNaN(t) ? 0 : t;
     });
 
-    // Different tabs for different views
+    const handleAttendanceTypeChange = (event, newType) => {
+        if (newType !== null) {
+            setAttendanceType(newType);
+            setActiveTab(0); // Reset to first tab when switching
+        }
+    };
+
+    // Different tabs for different views and attendance types
     const getAttendanceTabs = () => {
         const employeeActive = isEmployeeActive();
         
@@ -68,17 +94,27 @@ const Attendance = () => {
 
             return baseTabs;
         } else if (isHRView()) {
-            // HR view: Full management capabilities
-            return [
-                { label: 'Overview', icon: <DashboardIcon />, component: AttendanceDashboard },
-                { label: 'Records', icon: <CalendarIcon />, component: AttendanceTable },
-                { label: 'Pending', icon: <PendingIcon />, component: PendingAttendance },
-                { label: 'Mark Attendance', icon: <AddIcon />, component: ManualAttendance },
-                { label: 'Bulk Upload', icon: <UploadIcon />, component: BulkUpload },
-                { label: 'Corrections', icon: <ScheduleIcon />, component: Regularization },
-                { label: 'Holidays', icon: <EventIcon />, component: HolidayManagement },
-                { label: 'Reports', icon: <ReportIcon />, component: AttendanceReports }
-            ];
+            // HR view: Different tabs for Office vs Factory
+            if (attendanceType === 'office') {
+                return [
+                    { label: 'Overview', icon: <DashboardIcon />, component: AttendanceDashboard },
+                    { label: 'Records', icon: <CalendarIcon />, component: AttendanceTable },
+                    { label: 'Mark Attendance', icon: <AddIcon />, component: ManualAttendance },
+                    { label: 'Corrections', icon: <ScheduleIcon />, component: Regularization },
+                    { label: 'Holidays', icon: <EventIcon />, component: HolidayManagement },
+                    { label: 'Reports', icon: <ReportIcon />, component: () => <AttendanceReports attendanceType="office" /> }
+                ];
+            } else {
+                // Factory attendance tabs
+                return [
+                    { label: 'Overview', icon: <DashboardIcon />, component: AttendanceDashboard },
+                    { label: 'Currently Present', icon: <PeopleIcon />, component: CurrentlyPresent },
+                    { label: 'Records', icon: <CalendarIcon />, component: AttendanceTable },
+                    { label: 'Pending', icon: <PendingIcon />, component: PendingAttendance },
+                    { label: 'Bulk Upload', icon: <UploadIcon />, component: BulkUpload },
+                    { label: 'Reports', icon: <ReportIcon />, component: () => <AttendanceReports attendanceType="factory" /> }
+                ];
+            }
         } else if (isManagerView()) {
             // Manager view: Team management focused
             return [
@@ -119,6 +155,48 @@ const Attendance = () => {
                         Your employee account is inactive. Attendance marking and corrections are disabled. You can only view your historical records.
                     </Typography>
                 </Alert>
+            )}
+
+            {/* Office/Factory Toggle - Only for HR */}
+            {isHRView() && (
+                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+                    <ToggleButtonGroup
+                        value={attendanceType}
+                        exclusive
+                        onChange={handleAttendanceTypeChange}
+                        aria-label="attendance type"
+                        sx={{
+                            '& .MuiToggleButton-root': {
+                                px: 4,
+                                py: 1.5,
+                                fontSize: '1rem',
+                                fontWeight: 600,
+                                textTransform: 'none',
+                                border: '2px solid',
+                                '&.Mui-selected': {
+                                    bgcolor: 'primary.main',
+                                    color: 'white',
+                                    '&:hover': {
+                                        bgcolor: 'primary.dark',
+                                    }
+                                }
+                            }
+                        }}
+                    >
+                        <ToggleButton value="office" aria-label="office attendance">
+                            <Stack direction="row" spacing={1} alignItems="center">
+                                <OfficeIcon />
+                                <Typography>Office Attendance</Typography>
+                            </Stack>
+                        </ToggleButton>
+                        <ToggleButton value="factory" aria-label="factory attendance">
+                            <Stack direction="row" spacing={1} alignItems="center">
+                                <FactoryIcon />
+                                <Typography>Factory Attendance</Typography>
+                            </Stack>
+                        </ToggleButton>
+                    </ToggleButtonGroup>
+                </Box>
             )}
 
             {/* Navigation Tabs */}

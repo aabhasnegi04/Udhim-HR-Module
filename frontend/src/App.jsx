@@ -12,8 +12,12 @@ import EmployeeProfile from './pages/Employees/EmployeeProfile';
 import AddEmployee from './pages/Employees/AddEmployee';
 import OrgChart from './pages/OrgChart';
 import Attendance from './pages/Attendance';
+import CurrentlyPresent from './pages/Attendance/CurrentlyPresent';
 import Leave from './pages/Leave';
 import Payroll from './pages/Payroll';
+import Reports from './pages/Reports/Reports';
+import DepartmentShiftSummary from './pages/Reports/DepartmentShiftSummary';
+import EmployeeListReport from './pages/Reports/EmployeeListReport';
 import Offboarding from './pages/Offboarding';
 import Admin from './pages/Admin';
 import Setup from './pages/Setup';
@@ -119,6 +123,17 @@ function App() {
         />
 
         <Route
+          path="/attendance/currently-present"
+          element={
+            <ProtectedRoute requiredPage="attendance">
+              <Layout>
+                <CurrentlyPresent />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/leave"
           element={
             <ProtectedRoute requiredPage="leave">
@@ -135,6 +150,39 @@ function App() {
             <ProtectedRoute requiredPage="payroll">
               <Layout>
                 <Payroll />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/reports"
+          element={
+            <ProtectedRoute requiredPage="dashboard">
+              <Layout>
+                <Reports />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/reports/department-shift-summary"
+          element={
+            <ProtectedRoute requiredPage="dashboard">
+              <Layout>
+                <DepartmentShiftSummary />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/reports/employee-list"
+          element={
+            <ProtectedRoute requiredPage="dashboard">
+              <Layout>
+                <EmployeeListReport />
               </Layout>
             </ProtectedRoute>
           }

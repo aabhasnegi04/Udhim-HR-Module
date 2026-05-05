@@ -1,6 +1,13 @@
 from app import create_app
+import logging
 
 app = create_app()
+
+# Suppress noisy DEBUG logs - only show WARNING and above for internal modules
+logging.getLogger('app.database.multi_tenant_executor').setLevel(logging.WARNING)
+logging.getLogger('app.database.multi_tenant_connection').setLevel(logging.WARNING)
+logging.getLogger('app.database.master_db').setLevel(logging.WARNING)
+logging.getLogger('app.middleware.company_context').setLevel(logging.WARNING)
 
 if __name__ == '__main__':
     with app.app_context():
@@ -15,3 +22,4 @@ if __name__ == '__main__':
     
     print("Starting HRMS Backend Server...")
     app.run(host='0.0.0.0', port=5000, debug=True)
+    

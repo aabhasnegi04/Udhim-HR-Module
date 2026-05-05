@@ -409,6 +409,60 @@ def get_attendance_dashboard():
         return error_response(f"Failed to retrieve dashboard data: {str(e)}", status_code=500)
 
 
+@attendance_bp.route('/currently-present', methods=['GET'])
+@company_required
+@hr_or_manager_required  # HR and Manager can view currently present employees
+def get_currently_present():
+    """Get employees who are currently present (checked in but not checked out)"""
+    try:
+        target_date = request.args.get('date')
+        
+        # Parse date if provided
+        if target_date:
+            try:
+                target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+            except ValueError:
+                return validation_error_response("Invalid date format. Use YYYY-MM-DD")
+        
+        result = AttendanceService.get_currently_present_employees(target_date)
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data=result["data"]
+            )
+        else:
+            return error_response(result["message"], status_code=500)
+            
+    except Exception as e:
+        import traceback
+        from flask import current_app
+        current_app.logger.error(f"Currently present error: {str(e)}")
+
+
+@attendance_bp.route('/all-active-employees', methods=['GET'])
+@company_required
+@hr_or_manager_required
+def get_all_active_employees():
+    """Get all active employees with basic info"""
+    try:
+        result = AttendanceService.get_all_active_employees()
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data=result["data"]
+            )
+        else:
+            return error_response(result["message"], status_code=500)
+            
+    except Exception as e:
+        current_app.logger.error(f"Get all active employees error: {str(e)}")
+        return error_response("Failed to retrieve active employees", status_code=500)
+        current_app.logger.error(traceback.format_exc())
+        return error_response(f"Failed to retrieve currently present employees: {str(e)}", status_code=500)
+
+
 @attendance_bp.route('/reports/date-range', methods=['GET'])
 @company_required
 @multi_tenant_jwt_required  # All authenticated users can access, role-based logic handled inside
@@ -420,6 +474,8 @@ def get_attendance_by_date_range():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         employee_id = request.args.get('employee_id', type=int)
+        worker_category = request.args.get('worker_category')  # 'OFFICE' or 'FACTORY'
+        department = request.args.get('department')
         
         if not start_date or not end_date:
             return validation_error_response("start_date and end_date are required")
@@ -452,7 +508,9 @@ def get_attendance_by_date_range():
         else:
             return error_response("Access denied. Invalid role.", status_code=403)
         
-        result = AttendanceService.get_attendance_by_date_range(start_date, end_date, employee_id)
+        result = AttendanceService.get_attendance_by_date_range(
+            start_date, end_date, employee_id, worker_category, department
+        )
         
         if result["success"]:
             return success_response(
@@ -910,6 +968,150 @@ def download_bulk_upload_template():
         import traceback
         current_app.logger.error(f"Template download error: {str(e)}")
         current_app.logger.error(traceback.format_exc())
+
+
+@attendance_bp.route('/bulk-upload/preview', methods=['POST'])
+@company_required
+@hr_required
+def preview_bulk_upload():
+    """Preview multiple Excel files before processing (HR only)"""
+    try:
+        from app.attendance.bulk_upload import BulkAttendanceUpload
+        
+        # Check if files are present
+        if 'files' not in request.files:
+            return validation_error_response("No files provided")
+        
+        files = request.files.getlist('files')
+        
+        if not files or len(files) == 0:
+            return validation_error_response("No files selected")
+        
+        # Validate file types
+        for file in files:
+            if not file.filename.lower().endswith(('.xlsx', '.xls')):
+                return validation_error_response(f"Invalid file type: {file.filename}. Only .xlsx and .xls files are allowed")
+        
+        # Save files temporarily
+        import tempfile
+        temp_files = []
+        
+        try:
+            for file in files:
+                temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False)
+                file.save(temp_file.name)
+                temp_file.close()
+                temp_files.append(temp_file.name)
+            
+            current_app.logger.info(f"Previewing {len(temp_files)} file(s)")
+            
+            # Preview files
+            result = BulkAttendanceUpload.preview_files(temp_files)
+            
+            # Clean up temp files
+            for temp_path in temp_files:
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+            
+            if result['success']:
+                return success_response(
+                    message=f"Preview generated for {result['total_files']} file(s)",
+                    data=result
+                )
+            else:
+                return error_response(result['message'], status_code=400)
+                
+        except Exception as e:
+            # Clean up temp files on error
+            for temp_path in temp_files:
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+            raise e
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Preview error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response(f"Failed to preview files: {str(e)}", status_code=500)
+
+
+@attendance_bp.route('/bulk-upload/process-multiple', methods=['POST'])
+@company_required
+@hr_required
+def process_multiple_bulk_upload():
+    """Process multiple Excel files at once (HR only)"""
+    try:
+        from app.attendance.bulk_upload import BulkAttendanceUpload
+        
+        # Check if files are present
+        if 'files' not in request.files:
+            return validation_error_response("No files provided")
+        
+        files = request.files.getlist('files')
+        
+        if not files or len(files) == 0:
+            return validation_error_response("No files selected")
+        
+        # Validate file types
+        for file in files:
+            if not file.filename.lower().endswith(('.xlsx', '.xls')):
+                return validation_error_response(f"Invalid file type: {file.filename}. Only .xlsx and .xls files are allowed")
+        
+        # Save files temporarily
+        import tempfile
+        temp_files = []
+        
+        try:
+            for file in files:
+                temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False)
+                file.save(temp_file.name)
+                temp_file.close()
+                temp_files.append(temp_file.name)
+            
+            current_app.logger.info(f"Processing {len(temp_files)} file(s)")
+            
+            # Process all files
+            result = BulkAttendanceUpload.process_multiple_files(temp_files)
+            
+            # Clean up temp files
+            for temp_path in temp_files:
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+            
+            if result['success']:
+                return success_response(
+                    message=result['message'],
+                    data={
+                        'total_rows': result['total_rows'],
+                        'successful_rows': result['successful_rows'],
+                        'failed_rows': result['failed_rows'],
+                        'errors': result['errors'],
+                        'date_range': result.get('date_range')
+                    }
+                )
+            else:
+                return error_response(result['message'], status_code=400)
+                
+        except Exception as e:
+            # Clean up temp files on error
+            for temp_path in temp_files:
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+            raise e
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Multi-file upload error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response(f"Failed to process files: {str(e)}", status_code=500)
         return error_response(f"Failed to download template: {str(e)}", status_code=500)
 
 
@@ -925,8 +1127,6 @@ def edit_attendance_record(attendance_id):
     try:
         data = request.get_json()
         
-        current_app.logger.info(f"Edit attendance request - ID: {attendance_id}, Data: {data}")
-        
         if not data:
             return validation_error_response("Request body is required")
         
@@ -939,7 +1139,6 @@ def edit_attendance_record(attendance_id):
                 missing_fields.append(field)
         
         if missing_fields:
-            current_app.logger.error(f"Missing fields: {missing_fields}")
             return validation_error_response(
                 f"Missing required fields: {', '.join(missing_fields)}"
             )
@@ -961,24 +1160,26 @@ def edit_attendance_record(attendance_id):
                     raise ValueError(f"Unsupported date format: {date_str}")
             else:
                 attendance_date = date_str
-            current_app.logger.info(f"Parsed date: {attendance_date}")
         except (ValueError, AttributeError) as e:
-            current_app.logger.error(f"Date parsing error: {e}, received: {data['attendance_date']}")
             return validation_error_response("Invalid date format. Use YYYY-MM-DD or ISO format")
         
-        # Parse times if provided
+        # Parse times if provided - keep as strings for SQL Server
         check_in_time = None
         check_out_time = None
         
         if data.get('check_in_time'):
             try:
-                check_in_time = datetime.strptime(data['check_in_time'], '%H:%M:%S').time()
+                # Validate format but keep as string
+                datetime.strptime(data['check_in_time'], '%H:%M:%S')
+                check_in_time = data['check_in_time']  # Keep as string
             except ValueError:
                 return validation_error_response("Invalid check_in_time format. Use HH:MM:SS")
         
         if data.get('check_out_time'):
             try:
-                check_out_time = datetime.strptime(data['check_out_time'], '%H:%M:%S').time()
+                # Validate format but keep as string
+                datetime.strptime(data['check_out_time'], '%H:%M:%S')
+                check_out_time = data['check_out_time']  # Keep as string
             except ValueError:
                 return validation_error_response("Invalid check_out_time format. Use HH:MM:SS")
         
@@ -986,8 +1187,10 @@ def edit_attendance_record(attendance_id):
         working_minutes = None
         if check_in_time and check_out_time:
             # Convert to datetime for calculation
-            check_in_dt = datetime.combine(attendance_date, check_in_time)
-            check_out_dt = datetime.combine(attendance_date, check_out_time)
+            check_in_time_obj = datetime.strptime(check_in_time, '%H:%M:%S').time()
+            check_out_time_obj = datetime.strptime(check_out_time, '%H:%M:%S').time()
+            check_in_dt = datetime.combine(attendance_date, check_in_time_obj)
+            check_out_dt = datetime.combine(attendance_date, check_out_time_obj)
             
             if check_out_dt > check_in_dt:
                 working_minutes = int((check_out_dt - check_in_dt).total_seconds() / 60)
@@ -1003,6 +1206,9 @@ def edit_attendance_record(attendance_id):
         )
         
         if result["success"]:
+            # Don't regenerate factory attendance after manual edit
+            # Manual edits should be preserved, not recalculated from raw logs
+            
             return success_response(
                 message=result["message"],
                 data=result["data"]
@@ -1011,9 +1217,6 @@ def edit_attendance_record(attendance_id):
             return error_response(result["message"], status_code=400)
             
     except Exception as e:
-        import traceback
-        current_app.logger.error(f"Edit attendance error: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
         return error_response("Failed to edit attendance record", status_code=500)
 
 
@@ -1541,3 +1744,161 @@ def get_attendance_summary_report():
         return error_response('Failed to retrieve summary report', status_code=500)
     except Exception as e:
         return error_response(str(e), status_code=500)
+
+
+# ============================================================================
+# DEPARTMENT SHIFT SUMMARY REPORT
+# ============================================================================
+
+@attendance_bp.route('/reports/department-shift-summary', methods=['GET'])
+@company_required
+@hr_or_manager_required  # HR and Manager can view department shift summary
+def get_department_shift_summary():
+    """Get department-wise employee count grouped by shift for a specific date"""
+    try:
+        report_date = request.args.get('report_date')
+        
+        if not report_date:
+            return validation_error_response("report_date is required")
+        
+        # Parse date
+        try:
+            report_date = datetime.strptime(report_date, '%Y-%m-%d').date()
+        except ValueError:
+            return validation_error_response("Invalid date format. Use YYYY-MM-DD")
+        
+        # Execute stored procedure
+        parameters = {'report_date': report_date}
+        result = MultiTenantExecutor.execute_procedure('proc_get_department_shift_summary', parameters)
+        
+        if result["success"] and result["data"]:
+            # The first result set contains the department shift summary
+            summary_data = result["data"][0] if isinstance(result["data"], list) and len(result["data"]) > 0 else []
+            
+            # Group data by department for easier frontend processing
+            departments = {}
+            total_by_shift = {}
+            grand_total = 0
+            
+            for row in summary_data:
+                dept = row.get('department', 'Unassigned')
+                shift = row.get('shift_name', 'No Shift')
+                count = row.get('employee_count', 0)
+                
+                if dept not in departments:
+                    departments[dept] = {}
+                
+                departments[dept][shift] = count
+                
+                # Track totals by shift
+                if shift not in total_by_shift:
+                    total_by_shift[shift] = 0
+                total_by_shift[shift] += count
+                
+                grand_total += count
+            
+            return success_response(
+                message="Department shift summary retrieved successfully",
+                data={
+                    "report_date": report_date.strftime('%Y-%m-%d'),
+                    "departments": departments,
+                    "total_by_shift": total_by_shift,
+                    "grand_total": grand_total,
+                    "raw_data": summary_data
+                }
+            )
+        else:
+            return success_response(
+                message="No data available for the selected date",
+                data={
+                    "report_date": report_date.strftime('%Y-%m-%d'),
+                    "departments": {},
+                    "total_by_shift": {},
+                    "grand_total": 0,
+                    "raw_data": []
+                }
+            )
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Department shift summary error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to retrieve department shift summary", status_code=500)
+
+
+@attendance_bp.route('/reports/employee-list', methods=['GET'])
+@company_required
+@hr_or_manager_required
+def get_employee_list_report():
+    """Get employee list with all fields for reporting/download"""
+    try:
+        department = request.args.get('department')
+        worker_category = request.args.get('worker_category')
+        status = request.args.get('status', 'ACTIVE')
+
+        query = """
+            SELECT 
+                e.employee_id,
+                e.employee_code,
+                p.first_name,
+                p.last_name,
+                o.department,
+                o.designation,
+                o.date_of_joining,
+                p.email,
+                p.phone,
+                p.dob,
+                p.gender,
+                p.address,
+                p.emergency_contact,
+                o.work_location,
+                o.employment_type,
+                ISNULL(o.worker_category, 'OFFICE') AS worker_category,
+                s.shift_name,
+                e.status
+            FROM employees e
+            LEFT JOIN employee_personal p ON e.employee_id = p.employee_id
+            LEFT JOIN employee_official o ON e.employee_id = o.employee_id
+            LEFT JOIN employee_shift_assignment esa 
+                ON e.employee_id = esa.employee_id AND esa.effective_to IS NULL
+            LEFT JOIN shift_definitions s ON esa.shift_id = s.shift_id
+            WHERE 1=1
+        """
+
+        params = []
+
+        if status and status != 'ALL':
+            query += " AND e.status = ?"
+            params.append(status)
+
+        if department and department != 'ALL':
+            query += " AND o.department = ?"
+            params.append(department)
+
+        if worker_category and worker_category != 'ALL':
+            query += " AND o.worker_category = ?"
+            params.append(worker_category)
+
+        query += " ORDER BY TRY_CAST(e.employee_code AS INT), e.employee_code"
+
+        result = MultiTenantExecutor.execute_query(query, tuple(params) if params else None)
+
+        if not result["success"]:
+            current_app.logger.error(f"Employee list query failed: {result.get('message')}")
+            return error_response(f"Query failed: {result.get('message')}", status_code=500)
+
+        employees = result["data"] or []
+
+        return success_response(
+            message="Employee list retrieved successfully",
+            data={
+                "employees": employees,
+                "total_count": len(employees)
+            }
+        )
+
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Employee list report error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to retrieve employee list", status_code=500)

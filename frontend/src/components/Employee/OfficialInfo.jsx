@@ -71,11 +71,16 @@ const InfoItem = ({ icon, label, value, isChip = false, chipColor = 'primary', i
                             onChange={(e) => onFieldChange(field, e.target.value)}
                             sx={{ mt: 0.5 }}
                         >
-                            {options.map((option) => (
-                                <MenuItem key={option} value={option}>
-                                    {option}
-                                </MenuItem>
-                            ))}
+                            {options.map((option) => {
+                                // Handle both string options and object options with value/label
+                                const optionValue = typeof option === 'object' ? option.value : option;
+                                const optionLabel = typeof option === 'object' ? option.label : option;
+                                return (
+                                    <MenuItem key={optionValue} value={optionValue}>
+                                        {optionLabel}
+                                    </MenuItem>
+                                );
+                            })}
                         </TextField>
                     ) : type === 'date' ? (
                         <AppDatePicker
@@ -173,6 +178,21 @@ const OfficialInfo = ({ employee, isEditing, onFieldChange, employmentTypes = []
                             onFieldChange={onFieldChange}
                             type="select"
                             options={employmentTypes}
+                        />
+                        <InfoItem
+                            icon={<WorkIcon />}
+                            label="Worker Category"
+                            value={isEditing ? employee.workerCategory : (employee.workerCategory === 'FACTORY' ? 'Factory Worker (Daily Wage)' : 'Office Employee (Monthly Salary)')}
+                            isChip={!isEditing}
+                            chipColor={employee.workerCategory === 'FACTORY' ? 'warning' : 'info'}
+                            isEditing={isEditing}
+                            field="workerCategory"
+                            onFieldChange={onFieldChange}
+                            type="select"
+                            options={[
+                                { value: 'OFFICE', label: 'Office Employee (Monthly Salary)' },
+                                { value: 'FACTORY', label: 'Factory Worker (Daily Wage)' }
+                            ]}
                         />
                         <InfoItem
                             icon={<LocationIcon />}

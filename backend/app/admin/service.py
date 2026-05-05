@@ -1185,6 +1185,15 @@ class AdminService:
     def bulk_upload_employee(employee_data, dry_run=False):
         """Upload single employee record with validation (matches actual schema)"""
         try:
+            # Determine worker_category: if shift is provided, it's FACTORY, otherwise OFFICE
+            worker_category = 'OFFICE'  # Default
+            if employee_data.get('shift') or employee_data.get('shift_id'):
+                worker_category = 'FACTORY'
+            
+            # Allow explicit worker_category override
+            if employee_data.get('worker_category'):
+                worker_category = employee_data.get('worker_category').upper()
+            
             parameters = {
                 'employee_code': employee_data.get('employee_code'),
                 'first_name': employee_data.get('first_name'),
@@ -1200,6 +1209,7 @@ class AdminService:
                 'date_of_joining': employee_data.get('date_of_joining'),
                 'work_location': employee_data.get('work_location'),
                 'employment_type': employee_data.get('employment_type'),
+                'worker_category': worker_category,
                 'dry_run': 1 if dry_run else 0
             }
             

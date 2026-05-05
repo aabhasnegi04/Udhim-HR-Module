@@ -17,17 +17,10 @@ class AttendanceService:
                     e.employee_code,
                     CONCAT(ep.first_name, ' ', ep.last_name) AS employee_name,
                     eo.department,
-                    eo.worker_category,
-                    sd.shift_name,
-                    CONVERT(VARCHAR(8), sd.start_time, 108) AS start_time,
-                    CONVERT(VARCHAR(8), sd.end_time, 108) AS end_time
+                    eo.worker_category
                 FROM employees e
                 INNER JOIN employee_personal ep ON e.employee_id = ep.employee_id
                 LEFT JOIN employee_official eo ON e.employee_id = eo.employee_id
-                LEFT JOIN employee_shift_assignment esa ON e.employee_id = esa.employee_id 
-                    AND esa.effective_from <= CAST(GETDATE() AS DATE)
-                    AND (esa.effective_to IS NULL OR esa.effective_to >= CAST(GETDATE() AS DATE))
-                LEFT JOIN shift_definitions sd ON esa.shift_id = sd.shift_id
                 WHERE e.status = 'ACTIVE'
                 ORDER BY ep.first_name, ep.last_name
             """)

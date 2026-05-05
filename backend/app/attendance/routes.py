@@ -1531,54 +1531,6 @@ def update_shift(shift_id):
         return error_response(str(e), status_code=500)
 
 
-@attendance_bp.route('/shifts/assign', methods=['POST'])
-@company_required
-@hr_required
-def assign_shift():
-    """Assign a shift to an employee"""
-    try:
-        from flask_jwt_extended import get_jwt_identity
-        data = request.get_json()
-        if not data:
-            return validation_error_response('Request body required')
-        result = MultiTenantExecutor.execute_procedure('proc_assign_employee_shift', {
-            'employee_id':    data.get('employee_id'),
-            'shift_id':       data.get('shift_id'),
-            'effective_from': data.get('effective_from'),
-            'assigned_by':    data.get('assigned_by'),
-        })
-        if result['success'] and result['data']:
-            r = result['data'][0]
-            if r.get('success') == 1:
-                return success_response(message=r.get('message'))
-            return error_response(r.get('message', 'Failed'), status_code=400)
-        return error_response('Failed to assign shift', status_code=500)
-    except Exception as e:
-        return error_response(str(e), status_code=500)
-
-
-@attendance_bp.route('/shifts/employee/<int:employee_id>', methods=['GET'])
-@company_required
-@hr_required
-def get_employee_shift(employee_id):
-    """Get current shift assignment for an employee"""
-    try:
-        result = MultiTenantExecutor.execute_procedure(
-            'proc_get_employee_current_shift', {'employee_id': employee_id}
-        )
-        if result['success']:
-            data = result['data'][0] if result['data'] else None
-            if data:
-                if data.get('start_time') and not isinstance(data['start_time'], str):
-                    data['start_time'] = str(data['start_time'])
-                if data.get('end_time') and not isinstance(data['end_time'], str):
-                    data['end_time'] = str(data['end_time'])
-            return success_response(message='Shift retrieved', data={'assignment': data})
-        return error_response('Failed to retrieve shift', status_code=500)
-    except Exception as e:
-        return success_response(message='No shift assigned', data={'assignment': None})
-
-
 # ============================================================================
 # FACTORY ATTENDANCE PROCESSING
 # ============================================================================
@@ -1659,29 +1611,6 @@ def process_yesterday_factory_attendance():
         )
     except Exception as e:
         current_app.logger.error(f"Scheduled process error: {str(e)}")
-        return error_response(str(e), status_code=500)
-
-
-@attendance_bp.route('/shifts/remove', methods=['POST'])
-@company_required
-@hr_required
-def remove_employee_shift():
-    """Remove shift assignment from an employee"""
-    try:
-        data = request.get_json()
-        if not data or not data.get('employee_id'):
-            return validation_error_response('employee_id is required')
-        result = MultiTenantExecutor.execute_procedure(
-            'proc_remove_employee_shift',
-            {'employee_id': data.get('employee_id')}
-        )
-        if result['success'] and result['data']:
-            r = result['data'][0]
-            if r.get('success') == 1:
-                return success_response(message=r.get('message'))
-            return error_response(r.get('message', 'Failed'), status_code=400)
-        return error_response('Failed to remove shift', status_code=500)
-    except Exception as e:
         return error_response(str(e), status_code=500)
 
 
@@ -1854,14 +1783,10 @@ def get_employee_list_report():
                 o.work_location,
                 o.employment_type,
                 ISNULL(o.worker_category, 'OFFICE') AS worker_category,
-                s.shift_name,
                 e.status
             FROM employees e
             LEFT JOIN employee_personal p ON e.employee_id = p.employee_id
             LEFT JOIN employee_official o ON e.employee_id = o.employee_id
-            LEFT JOIN employee_shift_assignment esa 
-                ON e.employee_id = esa.employee_id AND esa.effective_to IS NULL
-            LEFT JOIN shift_definitions s ON esa.shift_id = s.shift_id
             WHERE 1=1
         """
 

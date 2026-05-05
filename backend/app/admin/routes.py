@@ -1098,12 +1098,6 @@ def download_bulk_upload_template(template_type):
             designations = [d['designation_name'] for d in (designations_result.get('data') or [])] if designations_result.get('success') else []
             locations = [l['location_name'] for l in (locations_result.get('data') or [])] if locations_result.get('success') else []
 
-            # Fetch shifts for dropdown
-            from app.database.multi_tenant_executor import MultiTenantExecutor as _MTE
-            shifts_result = _MTE.execute_procedure('proc_get_shift_definitions')
-            shifts = []
-            if shifts_result.get('success') and shifts_result.get('data'):
-                shifts = [s['shift_name'] for s in shifts_result['data'] if s.get('is_active')]            
             # Create workbook
             wb = Workbook()
             ws = wb.active
@@ -1144,18 +1138,12 @@ def download_bulk_upload_template(template_type):
             for idx, emp_type in enumerate(emp_types, start=2):
                 ref_sheet[f'E{idx}'] = emp_type
 
-            # Add shifts to reference sheet
-            ref_sheet['F1'] = 'Shifts'
-            ref_sheet['F1'].font = Font(bold=True)
-            for idx, shift in enumerate(shifts, start=2):
-                ref_sheet[f'F{idx}'] = shift
-
             # Add worker categories to reference sheet
-            ref_sheet['G1'] = 'Worker Category'
-            ref_sheet['G1'].font = Font(bold=True)
+            ref_sheet['F1'] = 'Worker Category'
+            ref_sheet['F1'].font = Font(bold=True)
             worker_categories = ['OFFICE', 'FACTORY']
             for idx, category in enumerate(worker_categories, start=2):
-                ref_sheet[f'G{idx}'] = category
+                ref_sheet[f'F{idx}'] = category
 
             # Define headers for main sheet
             headers = [
@@ -1164,7 +1152,7 @@ def download_bulk_upload_template(template_type):
                 'Department', 'Designation', 'Date of Joining (YYYY-MM-DD)',
                 # Optional (blue) - right side
                 'Email (optional)', 'Phone', 'DOB (YYYY-MM-DD)', 'Gender', 'Address',
-                'Emergency Contact Phone', 'Work Location', 'Employment Type', 'Worker Category', 'Shift (optional)'
+                'Emergency Contact Phone', 'Work Location', 'Employment Type', 'Worker Category'
             ]
 
             # Mark required fields (first 6 columns, excluding Last Name at index 2)
@@ -1199,8 +1187,7 @@ def download_bulk_upload_template(template_type):
                 '9876543212',
                 locations[0] if locations else 'Mumbai Office',
                 'Full-Time',
-                'OFFICE',  # Worker Category
-                shifts[0] if shifts else ''
+                'OFFICE'  # Worker Category
             ]
             
             for col_num, value in enumerate(sample_data, start=1):
@@ -1343,18 +1330,8 @@ def download_bulk_upload_template(template_type):
                 ws.add_data_validation(emp_type_dv)
                 emp_type_dv.add('N2:N1000')
 
-            # 12. Shift dropdown (column O) - optional
-            if len(shifts) > 0:
-                shift_dv = DataValidation(type="list", formula1=f"'Reference Data'!$F$2:$F${len(shifts)+1}", allow_blank=True)
-                shift_dv.error = 'Please select from the dropdown'
-                shift_dv.errorTitle = 'Invalid Shift'
-                shift_dv.prompt = 'Select shift from dropdown (optional — leave blank for office employees)'
-                shift_dv.promptTitle = 'Shift'
-                ws.add_data_validation(shift_dv)
-                shift_dv.add('P2:P1000')  # Changed to column P since Worker Category is now column O
-
-            # 13. Worker Category dropdown (column O) - optional
-            worker_cat_dv = DataValidation(type="list", formula1="'Reference Data'!$G$2:$G$3", allow_blank=True)
+            # 12. Worker Category dropdown (column O) - optional
+            worker_cat_dv = DataValidation(type="list", formula1="'Reference Data'!$F$2:$F$3", allow_blank=True)
             worker_cat_dv.error = 'Please select OFFICE or FACTORY'
             worker_cat_dv.errorTitle = 'Invalid Worker Category'
             worker_cat_dv.prompt = 'Select OFFICE or FACTORY (optional — defaults to OFFICE if blank)'
@@ -1708,28 +1685,6 @@ def process_bulk_employee_upload():
             
             if result['success']:
                 results['success'] += 1
-                # Assign shift if provided
-                shift_name = employee_data.get('shift_optional') or employee_data.get('shift')
-                if shift_name and shift_name.strip():
-                    try:
-                        from app.database.multi_tenant_executor import MultiTenantExecutor
-                        # Get shift_id by name
-                        shifts_res = MultiTenantExecutor.execute_procedure('proc_get_shift_definitions')
-                        shift_id = None
-                        if shifts_res.get('success') and shifts_res.get('data'):
-                            for s in shifts_res['data']:
-                                if s.get('shift_name', '').strip().lower() == shift_name.strip().lower():
-                                    shift_id = s['shift_id']
-                                    break
-                        if shift_id and result.get('employee_id'):
-                            MultiTenantExecutor.execute_procedure('proc_assign_employee_shift', {
-                                'employee_id': result['employee_id'],
-                                'shift_id': shift_id,
-                                'effective_from': employee_data.get('date_of_joining'),
-                                'assigned_by': None
-                            })
-                    except Exception as se:
-                        current_app.logger.warning(f"Shift assignment failed for row {row_num}: {se}")
             else:
                 results['failed'] += 1
                 results['errors'].append({

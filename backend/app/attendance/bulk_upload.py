@@ -225,6 +225,13 @@ class BulkAttendanceUpload:
                     enrollid = row['employee_id']
                     log_time = row['log_time']
                     
+                    # Track date range for ALL rows (including duplicates)
+                    punch_date = log_time.date()
+                    if min_date is None or punch_date < min_date:
+                        min_date = punch_date
+                    if max_date is None or punch_date > max_date:
+                        max_date = punch_date
+                    
                     # Resolve employee_code -> employee_id
                     cursor.execute(
                         "SELECT employee_id FROM employees WHERE employee_code = ? AND status = 'ACTIVE'",
@@ -256,12 +263,6 @@ class BulkAttendanceUpload:
                         (employee_id, log_time)
                     )
                     successful += 1
-                    
-                    punch_date = log_time.date()
-                    if min_date is None or punch_date < min_date:
-                        min_date = punch_date
-                    if max_date is None or punch_date > max_date:
-                        max_date = punch_date
                         
                 except Exception as row_err:
                     logger.error(f"Row insert error: {row_err}")
@@ -289,12 +290,21 @@ class BulkAttendanceUpload:
         # Generate attendance once for all dates
         if min_date and max_date:
             try:
-                # If we have early morning punches, also re-process previous day
-                # to capture night shift checkouts that span midnight
-                actual_start_date = min_date
-                if has_early_morning_punches and min_date:
-                    actual_start_date = min_date - timedelta(days=1)
-                    logger.info(f"Early morning punches detected - will re-process from {actual_start_date}")
+                # ALWAYS re-process from previous day to handle night shift scenarios
+                # Night shift workers may check in on day N-1 and check out on day N
+                actual_start_date = min_date - timedelta(days=1)
+                logger.info(f"Reprocessing attendance from {actual_start_date} to {max_date} (includes previous day for night shift)")
+                
+                # Delete existing records first to avoid update issues
+                conn = connection_manager.get_company_connection(company_code)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM attendance_daily WHERE attendance_date BETWEEN ? AND ?",
+                    (actual_start_date.strftime('%Y-%m-%d'), max_date.strftime('%Y-%m-%d'))
+                )
+                conn.commit()
+                connection_manager.return_connection(company_code, conn)
+                logger.info(f"Deleted existing attendance records from {actual_start_date} to {max_date}")
                 
                 MultiTenantExecutor.execute_procedure(
                     'proc_generate_factory_attendance',
@@ -379,6 +389,13 @@ class BulkAttendanceUpload:
                         continue
                     employee_id = emp_row[0]
 
+                    # Track date range even for duplicate punches
+                    punch_date = log_time.date()
+                    if min_date is None or punch_date < min_date:
+                        min_date = punch_date
+                    if max_date is None or punch_date > max_date:
+                        max_date = punch_date
+                    
                     # Skip duplicate punches (same employee, same minute)
                     cursor.execute(
                         "SELECT COUNT(*) FROM attendance_raw_logs WHERE employee_id=? AND log_time=?",
@@ -395,12 +412,6 @@ class BulkAttendanceUpload:
                         (employee_id, log_time)
                     )
                     successful += 1
-
-                    punch_date = log_time.date()
-                    if min_date is None or punch_date < min_date:
-                        min_date = punch_date
-                    if max_date is None or punch_date > max_date:
-                        max_date = punch_date
 
                 except Exception as row_err:
                     logger.error(f"Row insert error - employee_id={row.get('employee_id')} log_time={row.get('log_time')}: {row_err}")
@@ -428,12 +439,21 @@ class BulkAttendanceUpload:
         
         if min_date and max_date:
             try:
-                # If we have early morning punches, also re-process previous day
-                # to capture night shift checkouts that span midnight
-                actual_start_date = min_date
-                if has_early_morning_punches and min_date:
-                    actual_start_date = min_date - timedelta(days=1)
-                    logger.info(f"Early morning punches detected - will re-process from {actual_start_date}")
+                # ALWAYS re-process from previous day to handle night shift scenarios
+                # Night shift workers may check in on day N-1 and check out on day N
+                actual_start_date = min_date - timedelta(days=1)
+                logger.info(f"Reprocessing attendance from {actual_start_date} to {max_date} (includes previous day for night shift)")
+                
+                # Delete existing records first to avoid update issues
+                conn = connection_manager.get_company_connection(company_code)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM attendance_daily WHERE attendance_date BETWEEN ? AND ?",
+                    (actual_start_date.strftime('%Y-%m-%d'), max_date.strftime('%Y-%m-%d'))
+                )
+                conn.commit()
+                connection_manager.return_connection(company_code, conn)
+                logger.info(f"Deleted existing attendance records from {actual_start_date} to {max_date}")
                 
                 MultiTenantExecutor.execute_procedure(
                     'proc_generate_factory_attendance',

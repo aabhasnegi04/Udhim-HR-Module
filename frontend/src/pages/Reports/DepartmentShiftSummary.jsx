@@ -15,6 +15,10 @@ import {
     Alert,
     Stack,
     IconButton,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
 } from '@mui/material';
 import {
     TableChart as ExcelIcon,
@@ -31,6 +35,7 @@ import * as ExcelJS from 'exceljs';
 const DepartmentShiftSummary = () => {
     const navigate = useNavigate();
     const [reportDate, setReportDate] = useState(dayjs());
+    const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PRESENT, ABSENT
     const [reportData, setReportData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -40,7 +45,7 @@ const DepartmentShiftSummary = () => {
         if (reportDate && reportDate.isValid && reportDate.isValid()) {
             loadReportData();
         }
-    }, [reportDate]);
+    }, [reportDate, statusFilter]);
 
     const loadReportData = async () => {
         try {
@@ -58,7 +63,8 @@ const DepartmentShiftSummary = () => {
 
             const response = await api.get('/attendance/reports/department-shift-summary', {
                 params: {
-                    report_date: formattedDate
+                    report_date: formattedDate,
+                    status_filter: statusFilter
                 }
             });
 
@@ -86,7 +92,13 @@ const DepartmentShiftSummary = () => {
             Object.values(reportData.departments).forEach(dept => {
                 Object.keys(dept).forEach(shift => allShifts.add(shift));
             });
-            const shifts = Array.from(allShifts).sort();
+            // Custom sort order: Day Shift, Night Shift, Absent
+            const shiftOrder = { 'Day Shift': 1, 'Night Shift': 2, 'Absent': 3 };
+            const shifts = Array.from(allShifts).sort((a, b) => {
+                const orderA = shiftOrder[a] || 999;
+                const orderB = shiftOrder[b] || 999;
+                return orderA - orderB;
+            });
 
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Department Shift Summary', {
@@ -110,7 +122,7 @@ const DepartmentShiftSummary = () => {
             // Date Row
             worksheet.mergeCells(2, 1, 2, titleColSpan);
             const dateCell = worksheet.getCell(2, 1);
-            dateCell.value = `Report Date: ${reportDate.format('MMMM DD, YYYY')} | Generated: ${new Date().toLocaleString()}`;
+            dateCell.value = `Report Date: ${reportDate.format('DD/MM/YYYY')} | Status: ${statusFilter} | Generated: ${new Date().toLocaleString('en-GB')}`;
             dateCell.font = { size: 11, italic: true };
             dateCell.alignment = { vertical: 'middle', horizontal: 'center' };
             worksheet.getRow(2).height = 20;
@@ -118,7 +130,12 @@ const DepartmentShiftSummary = () => {
             // Summary Row
             worksheet.mergeCells(3, 1, 3, titleColSpan);
             const summaryCell = worksheet.getCell(3, 1);
-            summaryCell.value = `Total Present Employees: ${reportData.grand_total} | Departments: ${Object.keys(reportData.departments).length}`;
+            const summaryText = statusFilter === 'PRESENT' 
+                ? `Total Present Employees: ${reportData.grand_total} | Departments: ${Object.keys(reportData.departments).length}`
+                : statusFilter === 'ABSENT'
+                ? `Total Absent Employees: ${reportData.grand_total} | Departments: ${Object.keys(reportData.departments).length}`
+                : `Total Employees: ${reportData.grand_total} (Present + Absent) | Departments: ${Object.keys(reportData.departments).length}`;
+            summaryCell.value = summaryText;
             summaryCell.font = { bold: true, size: 12 };
             summaryCell.fill = {
                 type: 'pattern',
@@ -274,7 +291,7 @@ const DepartmentShiftSummary = () => {
             });
 
             // Generate filename
-            const filename = `Department_Shift_Summary_${reportDate.format('YYYY-MM-DD')}.xlsx`;
+            const filename = `Department_Shift_Summary_${reportDate.format('DD-MM-YYYY')}_${statusFilter}.xlsx`;
 
             // Write file
             const buffer = await workbook.xlsx.writeBuffer();
@@ -297,7 +314,13 @@ const DepartmentShiftSummary = () => {
             Object.keys(dept).forEach(shift => allShifts.add(shift));
         });
         
-        return Array.from(allShifts).sort();
+        // Custom sort order: Day Shift, Night Shift, Absent
+        const shiftOrder = { 'Day Shift': 1, 'Night Shift': 2, 'Absent': 3 };
+        return Array.from(allShifts).sort((a, b) => {
+            const orderA = shiftOrder[a] || 999;
+            const orderB = shiftOrder[b] || 999;
+            return orderA - orderB;
+        });
     };
 
     const shifts = getUniqueShifts();
@@ -330,6 +353,7 @@ const DepartmentShiftSummary = () => {
                             label="Report Date"
                             value={reportDate}
                             onChange={(newValue) => setReportDate(newValue)}
+                            format="DD/MM/YYYY"
                             slotProps={{
                                 textField: {
                                     size: 'small',
@@ -338,6 +362,19 @@ const DepartmentShiftSummary = () => {
                             }}
                         />
                     </LocalizationProvider>
+
+                    <FormControl size="small" sx={{ width: 200 }}>
+                        <InputLabel>Status Filter</InputLabel>
+                        <Select
+                            value={statusFilter}
+                            label="Status Filter"
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                        >
+                            <MenuItem value="ALL">All Employees</MenuItem>
+                            <MenuItem value="PRESENT">Present Only</MenuItem>
+                            <MenuItem value="ABSENT">Absent Only</MenuItem>
+                        </Select>
+                    </FormControl>
 
                     <Button
                         variant="contained"
@@ -369,7 +406,7 @@ const DepartmentShiftSummary = () => {
                         {Object.keys(reportData.departments).length === 0 ? (
                             <Box sx={{ p: 4, textAlign: 'center' }}>
                                 <Typography variant="body1" color="text.secondary">
-                                    No data available for {reportDate.format('MMMM DD, YYYY')}
+                                    No data available for {reportDate.format('DD/MM/YYYY')}
                                 </Typography>
                             </Box>
                         ) : (

@@ -50,7 +50,9 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
         while (currentDate.isBefore(endDate) || currentDate.isSame(endDate, 'day')) {
             dateColumns.push({
                 dateKey: currentDate.format('YYYY-MM-DD'),
-                day: currentDate.date()
+                day: currentDate.date(),
+                monthName: currentDate.format('MMM'),
+                fullDate: currentDate.format('DD/MM/YYYY')
             });
             currentDate = currentDate.add(1, 'day');
         }
@@ -70,7 +72,11 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
         ];
         
         dateColumns.forEach(col => {
-            columns.push({ header: col.day.toString(), key: `day_${col.day}`, width: 6 });
+            columns.push({ 
+                header: `${col.monthName} ${col.day}`, 
+                key: `day_${col.day}`, 
+                width: 10 
+            });
         });
         
         columns.push(
@@ -129,19 +135,23 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
                 rowData[`day_${col.day}`] = value;
                 
                 // Calculate totals from display value
+                // If value is numeric (hours), add to total
                 if (value && !isNaN(value)) {
-                    // Numeric value = hours worked (already includes OT from backend)
-                    totalHours += parseInt(value);
+                    totalHours += parseFloat(value);
                     workingDays++;
-                } else if (value === 'HD') {
-                    workingDays += 1; // Count as 1 day
-                } else if (value === 'P') {
+                } 
+                // If value is a status code, count as working day
+                else if (value === 'P' || value === 'PD' || value === 'OT' || value === 'H') {
                     workingDays++;
+                }
+                // Half day counts as 0.5 day
+                else if (value === 'HD') {
+                    workingDays += 0.5;
                 }
             });
             
-            rowData.totalHours = totalHours;
-            rowData.noOfDays = workingDays;
+            rowData.totalHours = totalHours > 0 ? totalHours.toFixed(1) : '';
+            rowData.noOfDays = workingDays > 0 ? workingDays : '';
             rowData.rate = '';
             rowData.grossAmount = '';
             rowData.advance = '';
@@ -195,24 +205,44 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
                         fgColor: { argb: 'FFFFC7CE' }
                     };
                     cell.font = { bold: true, color: { argb: 'FF9C0006' } };
-                } else if (cellValue === 'HD') {
-                    // Half day - yellow background
+                } else if (cellValue === 'PD') {
+                    // Pending - orange background
                     cell.fill = {
                         type: 'pattern',
                         pattern: 'solid',
-                        fgColor: { argb: 'FFFFEB9C' }
+                        fgColor: { argb: 'FFFFD966' }
                     };
-                    cell.font = { bold: true, color: { argb: 'FF9C5700' } };
-                } else if (cellValue === 'L') {
-                    // Leave - blue background
-                    cell.fill = {
-                        type: 'pattern',
-                        pattern: 'solid',
-                        fgColor: { argb: 'FFD9E1F2' }
-                    };
-                    cell.font = { bold: true, color: { argb: 'FF1F4E78' } };
+                    cell.font = { bold: true, color: { argb: 'FF7F6000' } };
                 } else if (cellValue && !isNaN(cellValue) && colNumber > 4 && colNumber <= 4 + dateColumns.length) {
-                    // Hours worked - green tint
+                    // Numeric hours value
+                    const hours = parseInt(cellValue);
+                    if (hours > 12) {
+                        // Overtime (more than 12 hours) - blue background
+                        cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FFD9E1F2' }
+                        };
+                        cell.font = { bold: true, color: { argb: 'FF1F4E78' } };
+                    } else if (hours === 12) {
+                        // Full day (exactly 12 hours) - green background
+                        cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FFC6EFCE' }
+                        };
+                        cell.font = { bold: true, color: { argb: 'FF006100' } };
+                    } else if (hours > 0 && hours < 12) {
+                        // Less than full day - yellow background
+                        cell.fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FFFFEB9C' }
+                        };
+                        cell.font = { bold: true, color: { argb: 'FF9C5700' } };
+                    }
+                } else if (cellValue === 'P' && colNumber > 4 && colNumber <= 4 + dateColumns.length) {
+                    // Present but no hours - light green
                     cell.fill = {
                         type: 'pattern',
                         pattern: 'solid',

@@ -43,7 +43,7 @@ import { exportFactoryGridToExcel } from './factoryGridExport';
 
 const AttendanceReports = ({ attendanceType = 'office' }) => {
     const [reportCategory, setReportCategory] = useState(attendanceType); // Sync with parent
-    const [selectedReport, setSelectedReport] = useState('dateRange');
+    const [selectedReport, setSelectedReport] = useState('monthly');
     const [dateRange, setDateRange] = useState({
         from: dayjs().startOf('month'),
         to: dayjs()

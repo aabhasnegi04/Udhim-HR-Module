@@ -53,9 +53,9 @@ const Reports = () => {
             state: { attendanceType: 'factory', tab: 3 }
         },
         {
-            id: 'date-range-report',
-            title: 'Date Range Report',
-            description: 'Datewise hours summary for factory workers',
+            id: 'monthly-summary',
+            title: 'Monthly Summary',
+            description: 'Monthly attendance summary for factory workers',
             icon: <AssignmentIcon sx={{ fontSize: 40 }} />,
             color: '#1565C0',
             category: 'Factory Attendance',

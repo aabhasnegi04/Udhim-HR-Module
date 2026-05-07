@@ -1686,9 +1686,14 @@ def get_department_shift_summary():
     """Get department-wise employee count grouped by shift for a specific date"""
     try:
         report_date = request.args.get('report_date')
+        status_filter = request.args.get('status_filter', 'ALL')  # ALL, PRESENT, ABSENT
         
         if not report_date:
             return validation_error_response("report_date is required")
+        
+        # Validate status_filter
+        if status_filter not in ['ALL', 'PRESENT', 'ABSENT']:
+            return validation_error_response("status_filter must be ALL, PRESENT, or ABSENT")
         
         # Parse date
         try:
@@ -1696,13 +1701,16 @@ def get_department_shift_summary():
         except ValueError:
             return validation_error_response("Invalid date format. Use YYYY-MM-DD")
         
-        # Execute stored procedure
-        parameters = {'report_date': report_date}
+        # Execute stored procedure with status filter
+        parameters = {
+            'report_date': report_date,
+            'status_filter': status_filter
+        }
         result = MultiTenantExecutor.execute_procedure('proc_get_department_shift_summary', parameters)
         
         if result["success"] and result["data"]:
-            # The first result set contains the department shift summary
-            summary_data = result["data"][0] if isinstance(result["data"], list) and len(result["data"]) > 0 else []
+            # The data is returned directly as a list of dictionaries
+            summary_data = result["data"] if isinstance(result["data"], list) else []
             
             # Group data by department for easier frontend processing
             departments = {}
@@ -1711,7 +1719,7 @@ def get_department_shift_summary():
             
             for row in summary_data:
                 dept = row.get('department', 'Unassigned')
-                shift = row.get('shift_name', 'No Shift')
+                shift = row.get('shift_type', 'No Shift')  # Changed from shift_name to shift_type
                 count = row.get('employee_count', 0)
                 
                 if dept not in departments:
@@ -1730,6 +1738,7 @@ def get_department_shift_summary():
                 message="Department shift summary retrieved successfully",
                 data={
                     "report_date": report_date.strftime('%Y-%m-%d'),
+                    "status_filter": status_filter,
                     "departments": departments,
                     "total_by_shift": total_by_shift,
                     "grand_total": grand_total,
@@ -1741,6 +1750,7 @@ def get_department_shift_summary():
                 message="No data available for the selected date",
                 data={
                     "report_date": report_date.strftime('%Y-%m-%d'),
+                    "status_filter": status_filter,
                     "departments": {},
                     "total_by_shift": {},
                     "grand_total": 0,

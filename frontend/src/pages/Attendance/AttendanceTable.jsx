@@ -142,6 +142,7 @@ const AttendanceTable = () => {
                     date: record.attendance_date,
                     checkIn: record.first_check_in || '—',
                     checkOut: record.last_check_out || '—',
+                    shiftType: record.shift_type || '—',
                     status: record.status || 'Unknown',
                     attendanceType: record.attendance_type || 'N/A',
                     workingHours: record.working_minutes ? `${Math.floor(record.working_minutes / 60)}h ${record.working_minutes % 60}m` : '0h',
@@ -568,6 +569,7 @@ const AttendanceTable = () => {
                         <TableCell sx={{ fontWeight: 600 }}>Date</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Check In</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Check Out</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Shift</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Hours</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
@@ -601,6 +603,16 @@ const AttendanceTable = () => {
                             <TableCell>{record.date}</TableCell>
                             <TableCell>{record.checkIn}</TableCell>
                             <TableCell>{record.checkOut}</TableCell>
+                            <TableCell>
+                                {record.shiftType !== '—' && (
+                                    <Chip
+                                        label={record.shiftType}
+                                        size="small"
+                                        variant="outlined"
+                                        color={record.shiftType === 'Day Shift' ? 'warning' : 'info'}
+                                    />
+                                )}
+                            </TableCell>
                             <TableCell>
                                 <Typography variant="body2" fontWeight={500}>
                                     {record.workingHours}

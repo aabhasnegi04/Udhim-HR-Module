@@ -13,6 +13,7 @@ import AddEmployee from './pages/Employees/AddEmployee';
 import OrgChart from './pages/OrgChart';
 import Attendance from './pages/Attendance';
 import CurrentlyPresent from './pages/Attendance/CurrentlyPresent';
+import DailyDepartmentAssignment from './pages/Attendance/DailyDepartmentAssignment';
 import Leave from './pages/Leave';
 import Payroll from './pages/Payroll';
 import Reports from './pages/Reports/Reports';
@@ -128,6 +129,17 @@ function App() {
             <ProtectedRoute requiredPage="attendance">
               <Layout>
                 <CurrentlyPresent />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/attendance/daily-department-assignment"
+          element={
+            <ProtectedRoute requiredPage="attendance">
+              <Layout>
+                <DailyDepartmentAssignment />
               </Layout>
             </ProtectedRoute>
           }

@@ -321,6 +321,83 @@ class EmployeeService {
       return { success: false, error: error.message };
     }
   }
+
+  // ============================================================================
+  // NEW: Employee Status Management (ACTIVE, INACTIVE, RESIGNED)
+  // ============================================================================
+
+  // GET EMPLOYEES BY STATUS
+  async getEmployeesByStatus(status = null, workerCategory = 'ALL') {
+    try {
+      let url = '/employees/by-status?';
+      if (status) {
+        url += `status=${status}&`;
+      }
+      url += `worker_category=${workerCategory}`;
+      
+      const response = await apiService.get(url);
+      if (response.success) {
+        return { success: true, data: response.data.employees };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      console.error('Get employees by status failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // CHANGE EMPLOYEE STATUS (single or bulk)
+  async changeEmployeeStatus(employeeIds, newStatus, reason) {
+    try {
+      const response = await apiService.post('/employees/change-status', {
+        employee_ids: employeeIds, // Can be single ID or array of IDs
+        new_status: newStatus,      // ACTIVE, INACTIVE, or RESIGNED
+        reason: reason
+      });
+      if (response.success) {
+        return { success: true, data: response.data };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      console.error('Change employee status failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // REHIRE EMPLOYEE (RESIGNED -> ACTIVE)
+  async rehireEmployee(employeeId, reason) {
+    try {
+      const response = await apiService.post(`/employees/${employeeId}/rehire`, {
+        reason: reason
+      });
+      if (response.success) {
+        return { success: true, data: response.data };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      console.error('Rehire employee failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // GET FACTORY WORKER EXITS
+  async getFactoryWorkerExits(exitStatus = null) {
+    try {
+      let url = '/employees/factory-exits';
+      if (exitStatus) {
+        url += `?exit_status=${exitStatus}`;
+      }
+      
+      const response = await apiService.get(url);
+      if (response.success) {
+        return { success: true, data: response.data.exits };
+      }
+      return { success: false, error: response.message };
+    } catch (error) {
+      console.error('Get factory worker exits failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 // Create singleton instance

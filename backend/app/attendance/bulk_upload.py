@@ -134,13 +134,21 @@ class BulkAttendanceUpload:
                 cursor = conn.cursor()
                 
                 invalid_codes = set()
+                inactive_codes = set()
+                resigned_codes = set()
+                
                 for emp_code in unique_employees:
                     cursor.execute(
-                        "SELECT employee_id FROM employees WHERE employee_code = ? AND status = 'ACTIVE'",
+                        "SELECT employee_id, status FROM employees WHERE employee_code = ?",
                         (str(emp_code),)
                     )
-                    if not cursor.fetchone():
+                    result = cursor.fetchone()
+                    if not result:
                         invalid_codes.add(emp_code)
+                    elif result[1] == 'INACTIVE':
+                        inactive_codes.add(emp_code)
+                    elif result[1] == 'RESIGNED':
+                        resigned_codes.add(emp_code)
                 
                 connection_manager.return_connection(company_code, conn)
                 
@@ -150,6 +158,24 @@ class BulkAttendanceUpload:
                         'type': 'invalid_employee',
                         'message': f'{len(invalid_codes)} employee code(s) not found ({punch_count} punches will be skipped)',
                         'codes': list(invalid_codes)[:10]  # Show first 10
+                    })
+                
+                if inactive_codes:
+                    punch_count = sum(1 for row in all_rows if row['employee_id'] in inactive_codes)
+                    warnings.append({
+                        'type': 'inactive_employee',
+                        'message': f'{len(inactive_codes)} INACTIVE employee(s) will be auto-activated ({punch_count} punches)',
+                        'codes': list(inactive_codes)[:10],
+                        'detail': 'These employees will be automatically marked as ACTIVE when attendance is uploaded'
+                    })
+                
+                if resigned_codes:
+                    punch_count = sum(1 for row in all_rows if row['employee_id'] in resigned_codes)
+                    warnings.append({
+                        'type': 'resigned_employee',
+                        'message': f'{len(resigned_codes)} RESIGNED employee(s) found ({punch_count} punches will be skipped)',
+                        'codes': list(resigned_codes)[:10],
+                        'detail': 'Please rehire these employees before uploading attendance'
                     })
                     
             except Exception as e:
@@ -234,7 +260,7 @@ class BulkAttendanceUpload:
                     
                     # Resolve employee_code -> employee_id
                     cursor.execute(
-                        "SELECT employee_id FROM employees WHERE employee_code = ? AND status = 'ACTIVE'",
+                        "SELECT employee_id, status FROM employees WHERE employee_code = ?",
                         (str(enrollid),)
                     )
                     emp_row = cursor.fetchone()
@@ -242,10 +268,37 @@ class BulkAttendanceUpload:
                         all_errors.append({
                             'row': row.get('row_number'),
                             'employee_id': enrollid,
-                            'error': f'No active employee found with code {enrollid}'
+                            'error': f'No employee found with code {enrollid}'
                         })
                         continue
                     employee_id = emp_row[0]
+                    employee_status = emp_row[1]
+                    
+                    # Auto-activate INACTIVE employees when attendance is uploaded
+                    if employee_status == 'INACTIVE':
+                        try:
+                            cursor.execute(
+                                """INSERT INTO employee_status_history 
+                                   (employee_id, old_status, new_status, reason, changed_by, changed_at)
+                                   VALUES (?, 'INACTIVE', 'ACTIVE', 'Auto-activated by bulk attendance upload', 1, GETDATE())""",
+                                (employee_id,)
+                            )
+                            cursor.execute(
+                                "UPDATE employees SET status = 'ACTIVE' WHERE employee_id = ?",
+                                (employee_id,)
+                            )
+                            logger.info(f"Auto-activated INACTIVE employee {enrollid} (ID: {employee_id})")
+                        except Exception as activate_err:
+                            logger.warning(f"Failed to auto-activate employee {enrollid}: {activate_err}")
+                    
+                    # Skip RESIGNED employees
+                    if employee_status == 'RESIGNED':
+                        all_errors.append({
+                            'row': row.get('row_number'),
+                            'employee_id': enrollid,
+                            'error': f'Employee {enrollid} has resigned. Please rehire before uploading attendance.'
+                        })
+                        continue
                     
                     # Skip duplicate punches
                     cursor.execute(
@@ -376,7 +429,7 @@ class BulkAttendanceUpload:
 
                     # Resolve employee_code -> employee_id
                     cursor.execute(
-                        "SELECT employee_id FROM employees WHERE employee_code = ? AND status = 'ACTIVE'",
+                        "SELECT employee_id, status FROM employees WHERE employee_code = ?",
                         (str(enrollid),)
                     )
                     emp_row = cursor.fetchone()
@@ -384,10 +437,37 @@ class BulkAttendanceUpload:
                         errors.append({
                             'row': row.get('row_number'),
                             'employee_id': enrollid,
-                            'error': f'No active employee found with code {enrollid}'
+                            'error': f'No employee found with code {enrollid}'
                         })
                         continue
                     employee_id = emp_row[0]
+                    employee_status = emp_row[1]
+                    
+                    # Auto-activate INACTIVE employees when attendance is uploaded
+                    if employee_status == 'INACTIVE':
+                        try:
+                            cursor.execute(
+                                """INSERT INTO employee_status_history 
+                                   (employee_id, old_status, new_status, reason, changed_by, changed_at)
+                                   VALUES (?, 'INACTIVE', 'ACTIVE', 'Auto-activated by bulk attendance upload', 1, GETDATE())""",
+                                (employee_id,)
+                            )
+                            cursor.execute(
+                                "UPDATE employees SET status = 'ACTIVE' WHERE employee_id = ?",
+                                (employee_id,)
+                            )
+                            logger.info(f"Auto-activated INACTIVE employee {enrollid} (ID: {employee_id})")
+                        except Exception as activate_err:
+                            logger.warning(f"Failed to auto-activate employee {enrollid}: {activate_err}")
+                    
+                    # Skip RESIGNED employees
+                    if employee_status == 'RESIGNED':
+                        errors.append({
+                            'row': row.get('row_number'),
+                            'employee_id': enrollid,
+                            'error': f'Employee {enrollid} has resigned. Please rehire before uploading attendance.'
+                        })
+                        continue
 
                     # Track date range even for duplicate punches
                     punch_date = log_time.date()

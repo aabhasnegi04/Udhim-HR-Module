@@ -521,3 +521,219 @@ class EmployeeService:
                 "message": "Status history service error",
                 "data": None
             }
+    
+    @staticmethod
+    def change_employee_status(employee_ids, new_status, reason, changed_by_user_id):
+        """
+        Change employee status (single or bulk)
+        Supports: ACTIVE, INACTIVE, RESIGNED
+        
+        Args:
+            employee_ids (list or str): Employee ID(s) - can be list or comma-separated string
+            new_status (str): New status (ACTIVE, INACTIVE, RESIGNED)
+            reason (str): Reason for status change
+            changed_by_user_id (int): User ID making the change
+            
+        Returns:
+            dict: Status change result
+        """
+        try:
+            # Convert list to comma-separated string if needed
+            if isinstance(employee_ids, list):
+                employee_ids_str = ','.join(str(id) for id in employee_ids)
+            else:
+                employee_ids_str = str(employee_ids)
+            
+            parameters = {
+                'employee_ids': employee_ids_str,
+                'new_status': new_status,
+                'reason': reason,
+                'changed_by': changed_by_user_id
+            }
+            
+            current_app.logger.info(f"Changing status for employees {employee_ids_str} to {new_status}")
+            
+            result = MultiTenantExecutor.execute_procedure('proc_change_employee_status', parameters)
+            
+            if result["success"] and result["data"]:
+                proc_result = result["data"][0]
+                if isinstance(proc_result, dict) and proc_result.get("success") == 1:
+                    return {
+                        "success": True,
+                        "message": proc_result.get("message", "Employee status changed successfully"),
+                        "data": {
+                            "employees_updated": proc_result.get("employees_updated", 0),
+                            "new_status": new_status
+                        }
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": proc_result.get("message", "Failed to change employee status"),
+                        "data": None
+                    }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to change employee status",
+                    "data": None
+                }
+                
+        except Exception as e:
+            import traceback
+            current_app.logger.error(f"Change employee status error: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "message": f"Status change service error: {str(e)}",
+                "data": None
+            }
+    
+    @staticmethod
+    def get_employees_by_status(status=None, worker_category=None):
+        """
+        Get employees filtered by status and/or worker category
+        
+        Args:
+            status (str): Employee status (ACTIVE, INACTIVE, RESIGNED) - optional
+            worker_category (str): Worker category (FACTORY, OFFICE, ALL) - optional
+            
+        Returns:
+            dict: Filtered employees result
+        """
+        try:
+            parameters = {
+                'status': status,
+                'worker_category': worker_category or 'ALL'
+            }
+            
+            result = MultiTenantExecutor.execute_procedure('proc_get_employees_by_status', parameters)
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "message": "Employees retrieved successfully",
+                    "data": result["data"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to retrieve employees",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Get employees by status error: {str(e)}")
+            return {
+                "success": False,
+                "message": "Employee service error",
+                "data": None
+            }
+    
+    @staticmethod
+    def rehire_employee(employee_id, rehire_reason, rehired_by_user_id):
+        """
+        Rehire a resigned employee (keeps same employee_code for biometric matching)
+        
+        Args:
+            employee_id (int): Employee ID to rehire
+            rehire_reason (str): Reason for rehiring
+            rehired_by_user_id (int): User ID who is rehiring
+            
+        Returns:
+            dict: Rehire result
+        """
+        try:
+            parameters = {
+                'employee_id': employee_id,
+                'rehire_reason': rehire_reason,
+                'rehired_by': rehired_by_user_id
+            }
+            
+            current_app.logger.info(f"Rehiring employee ID: {employee_id}")
+            
+            result = MultiTenantExecutor.execute_procedure('proc_rehire_employee', parameters)
+            
+            if result["success"] and result["data"]:
+                # The procedure returns nested results: [[result1], [result2]]
+                # We need the last result which is from proc_rehire_employee itself
+                proc_result = result["data"]
+                
+                # Get the last result set (from proc_rehire_employee)
+                if isinstance(proc_result, list) and len(proc_result) > 0:
+                    # Get last result set
+                    last_result_set = proc_result[-1]
+                    
+                    # Extract the dict from the result set
+                    if isinstance(last_result_set, list) and len(last_result_set) > 0:
+                        proc_result = last_result_set[0]
+                
+                if isinstance(proc_result, dict) and proc_result.get("success") == 1:
+                    return {
+                        "success": True,
+                        "message": proc_result.get("message", "Employee rehired successfully"),
+                        "data": {
+                            "employee_id": employee_id,
+                            "status": "ACTIVE"
+                        }
+                    }
+                else:
+                    error_msg = proc_result.get("message", "Failed to rehire employee") if isinstance(proc_result, dict) else "Failed to rehire employee"
+                    return {
+                        "success": False,
+                        "message": error_msg,
+                        "data": None
+                    }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to rehire employee",
+                    "data": None
+                }
+                
+        except Exception as e:
+            import traceback
+            current_app.logger.error(f"Rehire employee error: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "message": f"Rehire service error: {str(e)}",
+                "data": None
+            }
+    
+    @staticmethod
+    def get_factory_worker_exits(exit_status=None):
+        """
+        Get factory worker exit records
+        
+        Args:
+            exit_status (str): Exit status filter (RESIGNED, REHIRED) - optional
+            
+        Returns:
+            dict: Factory worker exits result
+        """
+        try:
+            parameters = {'exit_status': exit_status}
+            
+            result = MultiTenantExecutor.execute_procedure('proc_get_factory_worker_exits', parameters)
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "message": "Factory worker exits retrieved successfully",
+                    "data": result["data"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to retrieve factory worker exits",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Get factory worker exits error: {str(e)}")
+            return {
+                "success": False,
+                "message": "Factory worker exits service error",
+                "data": None
+            }

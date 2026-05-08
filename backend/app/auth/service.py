@@ -72,6 +72,18 @@ class AuthService:
                         "data": None
                     }
             
+            # Check employee status - block INACTIVE and RESIGNED employees from logging in
+            if employee_status in ['INACTIVE', 'RESIGNED']:
+                status_message = {
+                    'INACTIVE': 'Your account is currently inactive. Please contact HR for assistance.',
+                    'RESIGNED': 'Your employment has ended. Please contact HR if you believe this is an error.'
+                }
+                return {
+                    "success": False,
+                    "message": status_message.get(employee_status, 'Your account is not active'),
+                    "data": None
+                }
+            
             # Check if password change is required
             password_check_params = {'user_id': user_id}
             password_check_result = MultiTenantExecutor.execute_procedure('proc_check_password_change_required', password_check_params)

@@ -589,3 +589,65 @@ export const updateKiosk = async (kioskId, kioskName, kioskLocation, kioskPin = 
 
 // Kiosk functions are exported individually above
 // They can be imported like: import { verifyKioskPin, markKioskAttendance } from './attendanceService'
+
+
+// ============================================================================
+// DAILY DEPARTMENT ASSIGNMENT
+// ============================================================================
+
+/**
+ * Get daily department assignments for a specific date
+ */
+export const getDailyDepartmentAssignments = async (date, searchText = null, filterDepartment = null, employeeStatus = 'ACTIVE') => {
+  try {
+    let url = `/attendance/daily-department-assignments?date=${date}`;
+    if (searchText) url += `&search=${encodeURIComponent(searchText)}`;
+    if (filterDepartment && filterDepartment !== 'ALL') url += `&department=${encodeURIComponent(filterDepartment)}`;
+    if (employeeStatus && employeeStatus !== 'ALL') url += `&status=${encodeURIComponent(employeeStatus)}`;
+    
+    const response = await apiService.get(url);
+    return response;
+  } catch (error) {
+    console.error('Get daily department assignments error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Change department for single or multiple employees
+ */
+export const changeEmployeeDepartment = async (data) => {
+  try {
+    const response = await apiService.post('/attendance/change-department', data);
+    return response;
+  } catch (error) {
+    console.error('Change employee department error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get department change history for an employee
+ */
+export const getEmployeeDepartmentHistory = async (employeeId, limit = 50) => {
+  try {
+    const response = await apiService.get(`/attendance/department-history/${employeeId}?limit=${limit}`);
+    return response;
+  } catch (error) {
+    console.error('Get employee department history error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get list of all departments
+ */
+export const getDepartmentList = async () => {
+  try {
+    const response = await apiService.get('/attendance/departments');
+    return response;
+  } catch (error) {
+    console.error('Get department list error:', error);
+    throw error;
+  }
+};

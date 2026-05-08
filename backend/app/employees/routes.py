@@ -600,6 +600,200 @@ def get_employee_status_history(employee_id):
         return error_response("Failed to retrieve status history", status_code=500)
 
 
+@employees_bp.route('/change-status', methods=['POST'])
+@company_required
+@hr_required
+def change_employee_status():
+    """
+    Change employee status (single or bulk)
+    Supports: ACTIVE, INACTIVE, RESIGNED
+    
+    Request body:
+    {
+        "employee_ids": [123, 456] or "123,456" or 123,
+        "new_status": "INACTIVE",
+        "reason": "Gone to hometown for festival"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return validation_error_response("Request body is required")
+        
+        employee_ids = data.get('employee_ids')
+        new_status = data.get('new_status')
+        reason = data.get('reason')
+        
+        # Validate required fields
+        if not employee_ids:
+            return validation_error_response("employee_ids is required")
+        
+        if not new_status:
+            return validation_error_response("new_status is required")
+        
+        if not reason:
+            return validation_error_response("reason is required")
+        
+        # Validate status value
+        valid_statuses = ['ACTIVE', 'INACTIVE', 'RESIGNED']
+        if new_status not in valid_statuses:
+            return validation_error_response(
+                f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+            )
+        
+        # Get current user ID for audit
+        from flask_jwt_extended import get_jwt_identity
+        current_user_id = get_jwt_identity()
+        
+        result = EmployeeService.change_employee_status(
+            employee_ids=employee_ids,
+            new_status=new_status,
+            reason=reason,
+            changed_by_user_id=int(current_user_id)
+        )
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data=result["data"]
+            )
+        else:
+            return error_response(result["message"], status_code=400)
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Change status route error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to change employee status", status_code=500)
+
+
+@employees_bp.route('/by-status', methods=['GET'])
+@company_required
+@hr_required
+def get_employees_by_status():
+    """
+    Get employees filtered by status
+    
+    Query params:
+    - status: ACTIVE, INACTIVE, RESIGNED (optional - returns all if not specified)
+    - worker_category: FACTORY, OFFICE, ALL (optional - defaults to ALL)
+    """
+    try:
+        status = request.args.get('status')
+        worker_category = request.args.get('worker_category', 'ALL')
+        
+        # Validate status if provided
+        if status:
+            valid_statuses = ['ACTIVE', 'INACTIVE', 'RESIGNED']
+            if status not in valid_statuses:
+                return validation_error_response(
+                    f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+                )
+        
+        result = EmployeeService.get_employees_by_status(
+            status=status,
+            worker_category=worker_category
+        )
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data={"employees": result["data"]}
+            )
+        else:
+            return error_response(result["message"], status_code=500)
+            
+    except Exception as e:
+        current_app.logger.error(f"Get employees by status route error: {str(e)}")
+        return error_response("Failed to retrieve employees", status_code=500)
+
+
+@employees_bp.route('/<int:employee_id>/rehire', methods=['POST'])
+@company_required
+@hr_required
+def rehire_employee(employee_id):
+    """
+    Rehire a resigned employee
+    Keeps same employee_code for biometric device compatibility
+    
+    Request body:
+    {
+        "reason": "Rejoined after completing personal commitments"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return validation_error_response("Request body is required")
+        
+        reason = data.get('reason')
+        
+        if not reason:
+            return validation_error_response("reason is required")
+        
+        # Get current user ID for audit
+        from flask_jwt_extended import get_jwt_identity
+        current_user_id = get_jwt_identity()
+        
+        result = EmployeeService.rehire_employee(
+            employee_id=employee_id,
+            rehire_reason=reason,
+            rehired_by_user_id=int(current_user_id)
+        )
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data=result["data"]
+            )
+        else:
+            return error_response(result["message"], status_code=400)
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Rehire employee route error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to rehire employee", status_code=500)
+
+
+@employees_bp.route('/factory-exits', methods=['GET'])
+@company_required
+@hr_required
+def get_factory_worker_exits():
+    """
+    Get factory worker exit records
+    
+    Query params:
+    - exit_status: RESIGNED, REHIRED (optional - returns all if not specified)
+    """
+    try:
+        exit_status = request.args.get('exit_status')
+        
+        # Validate exit_status if provided
+        if exit_status:
+            valid_statuses = ['RESIGNED', 'REHIRED']
+            if exit_status not in valid_statuses:
+                return validation_error_response(
+                    f"Invalid exit_status. Must be one of: {', '.join(valid_statuses)}"
+                )
+        
+        result = EmployeeService.get_factory_worker_exits(exit_status=exit_status)
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data={"exits": result["data"]}
+            )
+        else:
+            return error_response(result["message"], status_code=500)
+            
+    except Exception as e:
+        current_app.logger.error(f"Get factory exits route error: {str(e)}")
+        return error_response("Failed to retrieve factory worker exits", status_code=500)
+
+
 @employees_bp.route('/company-policies', methods=['GET'])
 @company_required
 @multi_tenant_jwt_required

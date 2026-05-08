@@ -1837,3 +1837,178 @@ def get_employee_list_report():
         current_app.logger.error(f"Employee list report error: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return error_response("Failed to retrieve employee list", status_code=500)
+
+
+# ============================================================================
+# DAILY DEPARTMENT ASSIGNMENT
+# ============================================================================
+
+@attendance_bp.route('/daily-department-assignments', methods=['GET'])
+@company_required
+@hr_required  # Only HR can access department assignment
+def get_daily_department_assignments():
+    """Get employees with attendance for a specific date for department assignment (HR only)"""
+    try:
+        attendance_date = request.args.get('date')
+        search_text = request.args.get('search')
+        filter_department = request.args.get('department')
+        employee_status = request.args.get('status', 'ACTIVE')  # Default to ACTIVE
+        
+        if not attendance_date:
+            return validation_error_response("date parameter is required (format: YYYY-MM-DD)")
+        
+        # Parse date
+        try:
+            attendance_date = datetime.strptime(attendance_date, '%Y-%m-%d').date()
+        except ValueError:
+            return validation_error_response("Invalid date format. Use YYYY-MM-DD")
+        
+        result = AttendanceService.get_daily_department_assignments(
+            attendance_date, 
+            search_text, 
+            filter_department,
+            employee_status
+        )
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data={"assignments": result["data"]}
+            )
+        else:
+            return error_response(result["message"], status_code=500)
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Get daily department assignments error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to retrieve daily department assignments", status_code=500)
+
+
+@attendance_bp.route('/change-department', methods=['POST'])
+@company_required
+@hr_required  # Only HR can change department
+def change_employee_department():
+    """Change department for employee(s) on a specific date (HR only)"""
+    try:
+        from flask_jwt_extended import get_jwt
+        
+        data = request.get_json()
+        
+        if not data:
+            return validation_error_response("Request body is required")
+        
+        # Get current user's employee ID from JWT
+        claims = get_jwt()
+        changed_by = claims.get("employee_id")
+        
+        if not changed_by:
+            return error_response("Employee ID not found in token", status_code=400)
+        
+        # Check if bulk or single change
+        employee_ids = data.get('employee_ids')  # Can be list or single ID
+        employee_id = data.get('employee_id')    # Single ID
+        
+        if not employee_ids and not employee_id:
+            return validation_error_response("employee_id or employee_ids is required")
+        
+        # Validate required fields
+        if not data.get('change_date'):
+            return validation_error_response("change_date is required")
+        
+        if not data.get('new_department'):
+            return validation_error_response("new_department is required")
+        
+        # Parse date
+        try:
+            change_date = datetime.strptime(data['change_date'], '%Y-%m-%d').date()
+        except ValueError:
+            return validation_error_response("Invalid date format. Use YYYY-MM-DD")
+        
+        # Check if changing for future date
+        if change_date > date.today():
+            return validation_error_response("Cannot change department for future dates")
+        
+        reason = data.get('reason')
+        
+        # Determine if bulk or single change
+        if employee_ids:
+            # Bulk change
+            result = AttendanceService.bulk_change_employee_department(
+                employee_ids,
+                change_date,
+                data['new_department'],
+                changed_by,
+                reason
+            )
+        else:
+            # Single change
+            result = AttendanceService.change_employee_department(
+                employee_id,
+                change_date,
+                data['new_department'],
+                changed_by,
+                reason
+            )
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data=result["data"]
+            )
+        else:
+            return error_response(result["message"], status_code=400)
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Change employee department error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to change department", status_code=500)
+
+
+@attendance_bp.route('/department-history/<int:employee_id>', methods=['GET'])
+@company_required
+@hr_required  # Only HR can view department history
+def get_employee_department_history(employee_id):
+    """Get department change history for an employee (HR only)"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        
+        result = AttendanceService.get_employee_department_history(employee_id, limit)
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data={"history": result["data"]}
+            )
+        else:
+            return error_response(result["message"], status_code=500)
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Get employee department history error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to retrieve department history", status_code=500)
+
+
+@attendance_bp.route('/departments', methods=['GET'])
+@company_required
+@hr_or_manager_required  # HR and Manager can view department list
+def get_department_list():
+    """Get list of all departments"""
+    try:
+        result = AttendanceService.get_department_list()
+        
+        if result["success"]:
+            return success_response(
+                message=result["message"],
+                data={"departments": result["data"]}
+            )
+        else:
+            return error_response(result["message"], status_code=500)
+            
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Get department list error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to retrieve department list", status_code=500)

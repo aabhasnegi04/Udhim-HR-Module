@@ -748,3 +748,242 @@ class AttendanceService:
                 "message": f"Attendance service error: {str(e)}",
                 "data": None
             }
+
+    # ============================================================================
+    # DAILY DEPARTMENT ASSIGNMENT
+    # ============================================================================
+    
+    @staticmethod
+    def get_daily_department_assignments(attendance_date, search_text=None, filter_department=None, employee_status='ACTIVE'):
+        """Get employees with attendance for a specific date for department assignment"""
+        try:
+            parameters = {
+                'attendance_date': attendance_date,
+                'search_text': search_text,
+                'filter_department': filter_department,
+                'employee_status': employee_status
+            }
+            
+            result = MultiTenantExecutor.execute_procedure('proc_get_daily_department_assignments', parameters)
+            
+            if result["success"]:
+                # Convert datetime fields to strings for JSON serialization
+                formatted_data = []
+                for record in result["data"]:
+                    formatted_record = dict(record)
+                    
+                    # Convert datetime fields
+                    for field in ['first_check_in', 'last_check_out']:
+                        if field in formatted_record and formatted_record[field]:
+                            formatted_record[field] = formatted_record[field].isoformat() if hasattr(formatted_record[field], 'isoformat') else str(formatted_record[field])
+                    
+                    formatted_data.append(formatted_record)
+                
+                return {
+                    "success": True,
+                    "message": "Daily department assignments retrieved successfully",
+                    "data": formatted_data
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to retrieve daily department assignments",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Get daily department assignments error: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Attendance service error: {str(e)}",
+                "data": None
+            }
+    
+    @staticmethod
+    def change_employee_department(employee_id, change_date, new_department, changed_by, reason=None):
+        """Change department for a single employee on a specific date"""
+        try:
+            parameters = {
+                'employee_id': employee_id,
+                'change_date': change_date,
+                'new_department': new_department,
+                'changed_by': changed_by,
+                'reason': reason
+            }
+            
+            result = MultiTenantExecutor.execute_procedure('proc_change_employee_department', parameters)
+            
+            if result["success"] and result["data"]:
+                proc_result = result["data"][0]
+                
+                if isinstance(proc_result, dict):
+                    success_flag = proc_result.get("success", 0)
+                    
+                    if success_flag == 1:
+                        return {
+                            "success": True,
+                            "message": proc_result.get("message", "Department changed successfully"),
+                            "data": {
+                                "is_master_updated": proc_result.get("is_master_updated", 0)
+                            }
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "message": proc_result.get("message", "Failed to change department"),
+                            "data": None
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "message": "Unexpected response format from procedure",
+                        "data": None
+                    }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to change department",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Change employee department error: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Attendance service error: {str(e)}",
+                "data": None
+            }
+    
+    @staticmethod
+    def bulk_change_employee_department(employee_ids, change_date, new_department, changed_by, reason=None):
+        """Change department for multiple employees on a specific date"""
+        try:
+            # Convert list to comma-separated string if needed
+            if isinstance(employee_ids, list):
+                employee_ids_str = ','.join(map(str, employee_ids))
+            else:
+                employee_ids_str = str(employee_ids)
+            
+            parameters = {
+                'employee_ids': employee_ids_str,
+                'change_date': change_date,
+                'new_department': new_department,
+                'changed_by': changed_by,
+                'reason': reason
+            }
+            
+            result = MultiTenantExecutor.execute_procedure('proc_bulk_change_employee_department', parameters)
+            
+            if result["success"] and result["data"]:
+                proc_result = result["data"][0]
+                
+                if isinstance(proc_result, dict):
+                    success_flag = proc_result.get("success", 0)
+                    
+                    if success_flag == 1:
+                        return {
+                            "success": True,
+                            "message": proc_result.get("message", "Bulk department change completed"),
+                            "data": {
+                                "success_count": proc_result.get("success_count", 0),
+                                "error_count": proc_result.get("error_count", 0),
+                                "is_master_updated": proc_result.get("is_master_updated", 0)
+                            }
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "message": proc_result.get("message", "Failed to change departments"),
+                            "data": None
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "message": "Unexpected response format from procedure",
+                        "data": None
+                    }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to change departments",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Bulk change employee department error: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Attendance service error: {str(e)}",
+                "data": None
+            }
+    
+    @staticmethod
+    def get_employee_department_history(employee_id, limit=50):
+        """Get department change history for an employee"""
+        try:
+            parameters = {
+                'employee_id': employee_id,
+                'limit': limit
+            }
+            
+            result = MultiTenantExecutor.execute_procedure('proc_get_employee_department_history', parameters)
+            
+            if result["success"]:
+                # Convert datetime/date fields to strings for JSON serialization
+                formatted_data = []
+                for record in result["data"]:
+                    formatted_record = dict(record)
+                    
+                    # Convert datetime fields
+                    for field in ['change_date', 'changed_at']:
+                        if field in formatted_record and formatted_record[field]:
+                            formatted_record[field] = formatted_record[field].isoformat() if hasattr(formatted_record[field], 'isoformat') else str(formatted_record[field])
+                    
+                    formatted_data.append(formatted_record)
+                
+                return {
+                    "success": True,
+                    "message": "Department history retrieved successfully",
+                    "data": formatted_data
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to retrieve department history",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Get employee department history error: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Attendance service error: {str(e)}",
+                "data": None
+            }
+    
+    @staticmethod
+    def get_department_list():
+        """Get list of all departments"""
+        try:
+            result = MultiTenantExecutor.execute_procedure('proc_get_department_list', {})
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "message": "Department list retrieved successfully",
+                    "data": result["data"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to retrieve department list",
+                    "data": None
+                }
+                
+        except Exception as e:
+            current_app.logger.error(f"Get department list error: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Attendance service error: {str(e)}",
+                "data": None
+            }

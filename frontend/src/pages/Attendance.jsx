@@ -25,6 +25,7 @@ import {
     People as PeopleIcon,
     Business as OfficeIcon,
     Factory as FactoryIcon,
+    SwapHoriz as SwapIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useProfileSwitching } from '../context/ProfileSwitchingContext';
@@ -40,6 +41,7 @@ import HolidayManagement from './Attendance/HolidayManagement';
 import AttendanceReports from './Attendance/AttendanceReports';
 import AttendanceCheckIn from './Attendance/AttendanceCheckIn';
 import CurrentlyPresent from './Attendance/CurrentlyPresent';
+import DailyDepartmentAssignment from './Attendance/DailyDepartmentAssignment';
 import ErrorBoundary from '../components/ErrorBoundary';
 import PendingAttendance from './Attendance/PendingAttendance';
 
@@ -111,6 +113,7 @@ const Attendance = () => {
                     { label: 'Currently Present', icon: <PeopleIcon />, component: CurrentlyPresent },
                     { label: 'Records', icon: <CalendarIcon />, component: AttendanceTable },
                     { label: 'Pending', icon: <PendingIcon />, component: PendingAttendance },
+                    { label: 'Daily Department Assignment', icon: <SwapIcon />, component: DailyDepartmentAssignment },
                     { label: 'Bulk Upload', icon: <UploadIcon />, component: BulkUpload },
                     { label: 'Reports', icon: <ReportIcon />, component: () => <AttendanceReports attendanceType="factory" /> }
                 ];

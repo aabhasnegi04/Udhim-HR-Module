@@ -35,7 +35,7 @@ import * as ExcelJS from 'exceljs';
 const DepartmentShiftSummary = () => {
     const navigate = useNavigate();
     const [reportDate, setReportDate] = useState(dayjs());
-    const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PRESENT, ABSENT
+    const [statusFilter, setStatusFilter] = useState('PRESENT'); // PRESENT (default), ALL, ABSENT
     const [reportData, setReportData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -370,8 +370,8 @@ const DepartmentShiftSummary = () => {
                             label="Status Filter"
                             onChange={(e) => setStatusFilter(e.target.value)}
                         >
-                            <MenuItem value="ALL">All Employees</MenuItem>
                             <MenuItem value="PRESENT">Present Only</MenuItem>
+                            <MenuItem value="ALL">All Employees</MenuItem>
                             <MenuItem value="ABSENT">Absent Only</MenuItem>
                         </Select>
                     </FormControl>

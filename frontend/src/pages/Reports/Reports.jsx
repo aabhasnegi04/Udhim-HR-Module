@@ -60,7 +60,7 @@ const Reports = () => {
             color: '#1565C0',
             category: 'Factory Attendance',
             path: '/attendance',
-            state: { attendanceType: 'factory', tab: 5 }
+            state: { attendanceType: 'factory', tab: 6 }
         },
         {
             id: 'department-shift-summary',

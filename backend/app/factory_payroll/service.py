@@ -160,33 +160,33 @@ class FactoryPayrollService:
             }
     
     @staticmethod
-    def bulk_assign_rates(rate_data_list, effective_from, created_by):
+    def bulk_assign_rates(rate_data_list, created_by, effective_from=None):
         """
-        Bulk assign rates to multiple factory workers
-        
-        Args:
-            rate_data_list (list): List of dicts with employee_id and daily_rate
-            effective_from (str): Effective start date (YYYY-MM-DD)
-            created_by (int): User ID who created the rates
-            
-        Returns:
-            dict: Result with success/failure counts
+        Bulk assign rates — each entry in rate_data_list can have its own effective_from.
+        effective_from per entry takes priority; falls back to the global effective_from param.
         """
         try:
-            # Convert list to JSON string for SQL procedure
-            rate_data_json = json.dumps(rate_data_list)
-            
+            import json as _json
+            from datetime import date
+            today = date.today().isoformat()
+
+            # Ensure every entry has effective_from
+            for entry in rate_data_list:
+                if not entry.get('effective_from'):
+                    entry['effective_from'] = effective_from or today
+
+            rate_data_json = _json.dumps(rate_data_list)
+
             params = {
                 'rate_data': rate_data_json,
-                'effective_from': effective_from,
                 'created_by': created_by
             }
-            
+
             result = MultiTenantExecutor.execute_procedure(
                 'proc_bulk_assign_factory_rates',
                 params
             )
-            
+
             if result.get('success'):
                 return {
                     'success': True,
@@ -198,7 +198,7 @@ class FactoryPayrollService:
                     'success': False,
                     'message': result.get('message', 'Failed to assign rates')
                 }
-                
+
         except Exception as e:
             return {
                 'success': False,
@@ -206,7 +206,7 @@ class FactoryPayrollService:
             }
     
     @staticmethod
-    def get_all_workers_with_rates():
+    def get_all_workers_with_rates(employee_status='ACTIVE'):
         """
         Get all factory workers with their current rates
         
@@ -216,7 +216,7 @@ class FactoryPayrollService:
         try:
             result = MultiTenantExecutor.execute_procedure(
                 'proc_get_all_factory_workers_with_rates',
-                {}
+                {'employee_status': employee_status}
             )
             
             if result.get('success'):
@@ -451,6 +451,29 @@ class FactoryPayrollService:
             return {
                 'success': False,
                 'message': f'Error retrieving summary: {str(e)}'
+            }
+
+    @staticmethod
+    def get_payroll_summary_by_month(year, month):
+        """Get payroll summary for a year/month by looking up the period first"""
+        try:
+            # Find the period for this year/month
+            period_result = MultiTenantExecutor.execute_query(
+                "SELECT period_id FROM factory_payroll_periods WHERE year = ? AND month = ?",
+                (year, month)
+            )
+            if not period_result.get('success') or not period_result.get('data'):
+                return {
+                    'success': True,
+                    'message': 'No payroll period found for this month',
+                    'data': []
+                }
+            period_id = period_result['data'][0]['period_id']
+            return FactoryPayrollService.get_payroll_summary(period_id)
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Error retrieving summary by month: {str(e)}'
             }
     
     @staticmethod

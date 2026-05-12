@@ -1,12 +1,18 @@
 import ExcelJS from 'exceljs';
 import dayjs from 'dayjs';
 
-export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
+export const exportFactoryGridToExcel = async (startDate, endDate, records, payrollData = []) => {
     try {
         if (records.length === 0) {
             alert('No factory attendance data found for the selected period');
             return;
         }
+
+        // Build payroll lookup: employee_id → payroll row
+        const payrollMap = {};
+        payrollData.forEach(p => {
+            payrollMap[p.employee_id] = p;
+        });
 
         // Group by employee
         const employeeMap = {};
@@ -152,11 +158,14 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records) => {
             
             rowData.totalHours = totalHours > 0 ? totalHours.toFixed(1) : '';
             rowData.noOfDays = workingDays > 0 ? workingDays : '';
-            rowData.rate = '';
-            rowData.grossAmount = '';
-            rowData.advance = '';
-            rowData.netPayable = '';
-            rowData.signature = '';
+
+            // Fill payroll columns from payroll data if available
+            const payroll = payrollMap[empId];
+            rowData.rate        = payroll?.daily_rate   ? Number(payroll.daily_rate).toFixed(2)   : '';
+            rowData.grossAmount = payroll?.gross_earnings ? Number(payroll.gross_earnings).toFixed(2) : '';
+            rowData.advance     = '';  // Advance deductions — kept blank (not in system yet)
+            rowData.netPayable  = payroll?.net_salary   ? Number(payroll.net_salary).toFixed(2)   : '';
+            rowData.signature   = '';
             
             const row = worksheet.addRow(rowData);
             row.height = 22;

@@ -373,8 +373,23 @@ const AttendanceReports = ({ attendanceType = 'office' }) => {
                 return;
             }
 
+            // For monthly reports, also fetch payroll data to fill Rate/Gross/Net columns
+            let payrollData = [];
+            if (selectedReport === 'monthly') {
+                try {
+                    const payrollResponse = await import('../../services/api').then(m => m.default.get(
+                        `/factory-payroll/summary-by-month?year=${startDate.year()}&month=${startDate.month() + 1}`
+                    ));
+                    if (payrollResponse.success && payrollResponse.data) {
+                        payrollData = payrollResponse.data;
+                    }
+                } catch {
+                    // Payroll not calculated yet — columns will be blank
+                }
+            }
+
             // Use the new export function with beautiful formatting
-            await exportFactoryGridToExcel(startDate, endDate, response.data.records);
+            await exportFactoryGridToExcel(startDate, endDate, response.data.records, payrollData);
         } catch (error) {
             console.error('Factory grid export failed:', error);
             alert('Failed to export factory grid: ' + error.message);
@@ -681,27 +696,41 @@ const AttendanceReports = ({ attendanceType = 'office' }) => {
             case 'monthly':
                 return (
                     <TableContainer>
-                        <Table>
+                        <Table size="small">
                             <TableHead>
                                 <TableRow>
+                                    <TableCell>Code</TableCell>
                                     <TableCell>Employee</TableCell>
+                                    <TableCell>Department</TableCell>
                                     <TableCell align="center">Present</TableCell>
                                     <TableCell align="center">Absent</TableCell>
                                     <TableCell align="center">Late</TableCell>
-                                    <TableCell align="center">WFH</TableCell>
-                                    <TableCell align="center">Working Days</TableCell>
+                                    <TableCell align="center">Total Hours</TableCell>
                                     <TableCell align="center">Attendance %</TableCell>
+                                    {reportCategory === 'factory' && <>
+                                        <TableCell align="right">Daily Rate</TableCell>
+                                        <TableCell align="right">Basic Pay</TableCell>
+                                        <TableCell align="right">OT Pay</TableCell>
+                                        <TableCell align="right">Gross</TableCell>
+                                        <TableCell align="right">Net Salary</TableCell>
+                                        <TableCell align="center">Payment</TableCell>
+                                    </>}
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {reportData.map((row, index) => {
-                                    const attendancePercent = row.working_days > 0
-                                        ? Math.round((row.present_days / row.working_days) * 100)
+                                    const totalDays = (row.present_days || 0) + (row.absent_days || 0) + (row.late_days || 0);
+                                    const attendancePercent = totalDays > 0
+                                        ? Math.round(((row.present_days || 0) / totalDays) * 100)
                                         : 0;
-                                    
+                                    const fmt = (v) => v != null ? `₹${Number(v).toFixed(2)}` : '—';
+                                    const hasPayroll = row.gross_earnings != null;
+
                                     return (
                                         <TableRow key={index}>
+                                            <TableCell>{row.employee_code || '—'}</TableCell>
                                             <TableCell>{row.employee_name}</TableCell>
+                                            <TableCell>{row.master_department || row.department || '—'}</TableCell>
                                             <TableCell align="center">
                                                 <Chip label={row.present_days || 0} color="success" size="small" />
                                             </TableCell>
@@ -712,18 +741,33 @@ const AttendanceReports = ({ attendanceType = 'office' }) => {
                                                 <Chip label={row.late_days || 0} color="warning" size="small" />
                                             </TableCell>
                                             <TableCell align="center">
-                                                <Chip label={row.wfh_days || 0} color="info" size="small" />
+                                                {row.total_hours_worked ? Number(row.total_hours_worked).toFixed(1) + 'h' : '—'}
                                             </TableCell>
-                                            <TableCell align="center">{row.working_days || 0}</TableCell>
                                             <TableCell align="center">
-                                                <Typography 
-                                                    variant="body2" 
+                                                <Typography
+                                                    variant="body2"
                                                     fontWeight={600}
                                                     color={attendancePercent >= 90 ? 'success.main' : attendancePercent >= 75 ? 'warning.main' : 'error.main'}
                                                 >
                                                     {attendancePercent}%
                                                 </Typography>
                                             </TableCell>
+                                            {reportCategory === 'factory' && <>
+                                                <TableCell align="right">{fmt(row.daily_rate)}</TableCell>
+                                                <TableCell align="right">{hasPayroll ? fmt(row.basic_pay) : '—'}</TableCell>
+                                                <TableCell align="right">{hasPayroll ? fmt(row.overtime_pay) : '—'}</TableCell>
+                                                <TableCell align="right" sx={{ fontWeight: 600 }}>{hasPayroll ? fmt(row.gross_earnings) : '—'}</TableCell>
+                                                <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>{hasPayroll ? fmt(row.net_salary) : '—'}</TableCell>
+                                                <TableCell align="center">
+                                                    {hasPayroll ? (
+                                                        <Chip
+                                                            label={row.payment_status || 'PENDING'}
+                                                            size="small"
+                                                            color={row.payment_status === 'PAID' ? 'success' : 'warning'}
+                                                        />
+                                                    ) : <Chip label="Not Calculated" size="small" variant="outlined" />}
+                                                </TableCell>
+                                            </>}
                                         </TableRow>
                                     );
                                 })}

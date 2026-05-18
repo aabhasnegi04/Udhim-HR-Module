@@ -253,7 +253,7 @@ const AttendanceTable = () => {
             }
 
             // Title Row
-            worksheet.mergeCells('A1:J1');
+            worksheet.mergeCells('A1:K1');
             const titleCell = worksheet.getCell('A1');
             titleCell.value = 'ATTENDANCE RECORDS REPORT';
             titleCell.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
@@ -266,7 +266,7 @@ const AttendanceTable = () => {
             worksheet.getRow(1).height = 28;
 
             // Info Row
-            worksheet.mergeCells('A2:J2');
+            worksheet.mergeCells('A2:K2');
             const infoCell = worksheet.getCell('A2');
             infoCell.value = `Period: ${dateRangeText} | Department: ${departmentFilter} | Status: ${statusFilter} | Worker Type: ${employeeTypeFilter}`;
             infoCell.font = { size: 9, italic: true };
@@ -284,7 +284,7 @@ const AttendanceTable = () => {
                 pending: filteredData.filter(r => r.attendanceType === 'PENDING').length,
             };
 
-            worksheet.mergeCells('A3:J3');
+            worksheet.mergeCells('A3:K3');
             const statsCell = worksheet.getCell('A3');
             statsCell.value = `Total: ${stats.total} | Present: ${stats.present} | Absent: ${stats.absent} | Full Day: ${stats.full} | Half Day: ${stats.half} | Overtime: ${stats.overtime} | Pending: ${stats.pending}`;
             statsCell.font = { bold: true, size: 9 };
@@ -307,6 +307,7 @@ const AttendanceTable = () => {
                 'Date',
                 'Check In',
                 'Check Out',
+                'Shift',
                 'Working Hours',
                 'Effective Hrs',
                 'Overtime Hrs',
@@ -322,6 +323,7 @@ const AttendanceTable = () => {
                 { width: 11 },  // Date
                 { width: 10 },  // Check In
                 { width: 10 },  // Check Out
+                { width: 12 },  // Shift
                 { width: 12 },  // Working Hours
                 { width: 11 },  // Effective Hrs
                 { width: 11 },  // Overtime Hrs
@@ -403,6 +405,7 @@ const AttendanceTable = () => {
                     dayjs(record.date).format('DD MMM YYYY'),
                     formatTime(record.checkIn),
                     formatTime(record.checkOut),
+                    record.shiftType !== '—' ? record.shiftType : '',
                     record.workingHours,
                     Number(record.effectiveHours || 0).toFixed(2),
                     Number(record.overtimeHours || 0).toFixed(2),
@@ -437,7 +440,7 @@ const AttendanceTable = () => {
                     };
 
                     // Color code Type column
-                    if (colNumber === 10) {
+                    if (colNumber === 11) {
                         if (record.attendanceType === 'FULL') {
                             cell.fill = {
                                 type: 'pattern',
@@ -470,7 +473,7 @@ const AttendanceTable = () => {
                     }
 
                     // Color code Status column
-                    if (colNumber === 11) {
+                    if (colNumber === 12) {
                         if (record.status.toUpperCase() === 'PRESENT') {
                             cell.fill = {
                                 type: 'pattern',
@@ -496,7 +499,7 @@ const AttendanceTable = () => {
                     }
 
                     // Highlight overtime hours if > 0
-                    if (colNumber === 9 && Number(record.overtimeHours || 0) > 0) {
+                    if (colNumber === 10 && Number(record.overtimeHours || 0) > 0) {
                         cell.fill = {
                             type: 'pattern',
                             pattern: 'solid',

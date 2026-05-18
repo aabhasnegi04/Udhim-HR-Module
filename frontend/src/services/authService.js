@@ -83,7 +83,7 @@ class AuthService {
 
   // Check if user is authenticated
   isAuthenticated() {
-    const token = sessionStorage.getItem('hrms_token');
+    const token = localStorage.getItem('hrms_token');
     const user = sessionStorage.getItem('hrms_user');
     return !!(token && user);
   }

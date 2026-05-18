@@ -880,6 +880,7 @@ def bulk_upload_attendance():
     """Bulk upload attendance from Excel file (HR only)"""
     try:
         from app.attendance.bulk_upload import BulkAttendanceUpload
+        from app.middleware.jwt_required import get_current_user
         
         # Check if file is present
         if 'file' not in request.files:
@@ -893,6 +894,10 @@ def bulk_upload_attendance():
         if not file.filename.lower().endswith(('.xlsx', '.xls')):
             return validation_error_response("Invalid file type. Only .xlsx and .xls files are allowed")
         
+        # Get uploader identity for notifications
+        current_user = get_current_user()
+        uploader_user_id = current_user['user_id'] if current_user else None
+        
         # Save file temporarily
         import tempfile
         temp_file = tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False)
@@ -903,7 +908,7 @@ def bulk_upload_attendance():
         
         try:
             # Process file
-            result = BulkAttendanceUpload.validate_and_process_file(temp_file.name)
+            result = BulkAttendanceUpload.validate_and_process_file(temp_file.name, uploader_user_id)
             
             # Clean up file
             try:
@@ -919,7 +924,8 @@ def bulk_upload_attendance():
                         'successful_rows': result['successful_rows'],
                         'failed_rows': result['failed_rows'],
                         'errors': result['errors'],
-                        'date_range': result.get('date_range')
+                        'date_range': result.get('date_range'),
+                        'inactivity_summary': result.get('inactivity_summary'),
                     }
                 )
             else:
@@ -1046,6 +1052,7 @@ def process_multiple_bulk_upload():
     """Process multiple Excel files at once (HR only)"""
     try:
         from app.attendance.bulk_upload import BulkAttendanceUpload
+        from app.middleware.jwt_required import get_current_user
         
         # Check if files are present
         if 'files' not in request.files:
@@ -1061,6 +1068,10 @@ def process_multiple_bulk_upload():
             if not file.filename.lower().endswith(('.xlsx', '.xls')):
                 return validation_error_response(f"Invalid file type: {file.filename}. Only .xlsx and .xls files are allowed")
         
+        # Get uploader identity for notifications
+        current_user = get_current_user()
+        uploader_user_id = current_user['user_id'] if current_user else None
+
         # Save files temporarily
         import tempfile
         temp_files = []
@@ -1075,7 +1086,7 @@ def process_multiple_bulk_upload():
             current_app.logger.info(f"Processing {len(temp_files)} file(s)")
             
             # Process all files
-            result = BulkAttendanceUpload.process_multiple_files(temp_files)
+            result = BulkAttendanceUpload.process_multiple_files(temp_files, uploader_user_id)
             
             # Clean up temp files
             for temp_path in temp_files:
@@ -1092,7 +1103,8 @@ def process_multiple_bulk_upload():
                         'successful_rows': result['successful_rows'],
                         'failed_rows': result['failed_rows'],
                         'errors': result['errors'],
-                        'date_range': result.get('date_range')
+                        'date_range': result.get('date_range'),
+                        'inactivity_summary': result.get('inactivity_summary'),
                     }
                 )
             else:

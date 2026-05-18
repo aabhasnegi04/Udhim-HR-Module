@@ -158,7 +158,7 @@ class AdminService {
 
   async downloadHolidayTemplate() {
     try {
-      const token = sessionStorage.getItem('hrms_token');
+      const token = localStorage.getItem('hrms_token');
       const companyCode = import.meta.env.VITE_COMPANY_CODE || 'udhim';
       const currentView = localStorage.getItem('preferred_view') || 'HR';
       const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
@@ -195,7 +195,7 @@ class AdminService {
 
   async bulkUploadHolidays(file) {
     try {
-      const token = sessionStorage.getItem('hrms_token');
+      const token = localStorage.getItem('hrms_token');
       const companyCode = import.meta.env.VITE_COMPANY_CODE || 'udhim';
       const currentView = localStorage.getItem('preferred_view') || 'HR';
       const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
@@ -381,7 +381,7 @@ class AdminService {
   // BULK UPLOAD
   async downloadBulkUploadTemplate(templateType) {
     try {
-      const token = sessionStorage.getItem('hrms_token');
+      const token = localStorage.getItem('hrms_token');
       const companyCode = import.meta.env.VITE_COMPANY_CODE;
       const currentView = localStorage.getItem('preferred_view') || 'HR';
       

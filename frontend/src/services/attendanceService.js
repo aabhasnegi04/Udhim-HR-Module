@@ -354,7 +354,7 @@ class AttendanceService {
   // BULK UPLOAD
   async bulkUploadAttendance(file) {
     try {
-      const token = sessionStorage.getItem('hrms_token');
+      const token = localStorage.getItem('hrms_token');
       const companyCode = import.meta.env.VITE_COMPANY_CODE;
       const currentView = localStorage.getItem('preferred_view') || 'HR';
       
@@ -405,7 +405,7 @@ class AttendanceService {
 
   async downloadBulkUploadTemplate() {
     try {
-      const token = sessionStorage.getItem('hrms_token');
+      const token = localStorage.getItem('hrms_token');
       const companyCode = import.meta.env.VITE_COMPANY_CODE;
       const currentView = localStorage.getItem('preferred_view') || 'HR';
       

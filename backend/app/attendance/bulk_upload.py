@@ -8,6 +8,13 @@ Expected Excel format (from device):
 
 After inserting raw logs, triggers proc_generate_factory_attendance
 for the date range found in the file.
+
+Inactivity logic:
+- INACTIVE employees in the file are SKIPPED (not uploaded), HR is notified.
+- After every upload, ALL active employees with zero punches in the last 7 days
+  are automatically marked INACTIVE (factory workers: raw_logs check only;
+  office workers: also protected by approved leave).
+- HR (the uploader) receives a single notification summarising both.
 """
 
 import os
@@ -22,6 +29,134 @@ from app.database.multi_tenant_executor import MultiTenantExecutor
 from app.database.multi_tenant_connection import connection_manager
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _run_inactivity_check(cursor, uploader_user_id: int) -> dict:
+    """
+    Single-pass inactivity check run after every bulk upload.
+
+    Logic:
+      - FACTORY workers: no punch in attendance_raw_logs in last 7 days → INACTIVE
+      - OFFICE workers:  same, but employees with an approved leave that overlaps
+                         the last 7 days are protected.
+
+    Uses proc_change_employee_status so every status change is properly logged
+    in employee_status_history and factory_worker_exits.
+
+    Returns a dict with lists of newly inactivated employees.
+    """
+    cutoff = datetime.now() - timedelta(days=7)
+
+    # ── Factory workers ──────────────────────────────────────────────────────
+    cursor.execute(
+        """
+        SELECT e.employee_id, e.employee_code,
+               CONCAT(ep.first_name, ' ', ep.last_name) AS full_name
+        FROM   employees e
+        JOIN   employee_personal  ep ON ep.employee_id = e.employee_id
+        JOIN   employee_official  eo ON eo.employee_id = e.employee_id
+        WHERE  e.status = 'ACTIVE'
+        AND    ISNULL(eo.worker_category, 'OFFICE') = 'FACTORY'
+        AND    e.employee_id NOT IN (
+                   SELECT DISTINCT employee_id
+                   FROM   attendance_raw_logs
+                   WHERE  log_time >= ?
+               )
+        """,
+        (cutoff,)
+    )
+    factory_to_inactivate = cursor.fetchall()
+
+    # Office workers are intentionally excluded from auto-inactivity.
+    office_to_inactivate = []
+
+    all_to_inactivate = factory_to_inactivate
+
+    if not all_to_inactivate:
+        return {'factory': [], 'office': []}
+
+    # Build comma-separated ID string for proc_change_employee_status
+    ids_csv = ','.join(str(r[0]) for r in all_to_inactivate)
+
+    # Use the existing stored procedure — handles history logging,
+    # factory_worker_exits, and validates inputs properly.
+    # changed_by = uploader_user_id (the HR user who triggered the upload).
+    cursor.execute(
+        "EXEC proc_change_employee_status @employee_ids=?, @new_status='INACTIVE', "
+        "@reason='Auto-inactivated: no attendance punch in last 7 days', @changed_by=?",
+        (ids_csv, uploader_user_id)
+    )
+    result_row = cursor.fetchone()
+    if result_row and result_row[0] == 0:
+        logger.warning(f"proc_change_employee_status returned failure: {result_row[1]}")
+    else:
+        logger.info(
+            f"Inactivity check: marked {len(all_to_inactivate)} employee(s) INACTIVE "
+            f"(factory={len(factory_to_inactivate)}, office={len(office_to_inactivate)})"
+        )
+
+    # Factory workers don't have user accounts, so no users.is_active update needed.
+
+    return {
+        'factory': [
+            {'employee_id': r[0], 'employee_code': r[1], 'name': r[2]}
+            for r in factory_to_inactivate
+        ],
+        'office': [
+            {'employee_id': r[0], 'employee_code': r[1], 'name': r[2]}
+            for r in office_to_inactivate
+        ],
+    }
+
+
+def _send_upload_notification(cursor, uploader_user_id: int,
+                               skipped_inactive: list,
+                               newly_inactivated: dict) -> None:
+    """
+    Send a single notification to the HR user who did the upload,
+    summarising skipped-inactive employees and newly auto-inactivated ones.
+    Uses proc_create_notification so it goes through the standard path.
+    Only sends if there is something to report.
+    """
+    parts = []
+
+    if skipped_inactive:
+        codes = ', '.join(str(e['employee_code']) for e in skipped_inactive[:10])
+        extra = f' (+{len(skipped_inactive) - 10} more)' if len(skipped_inactive) > 10 else ''
+        parts.append(
+            f"{len(skipped_inactive)} INACTIVE employee(s) found in upload — "
+            f"their data was NOT uploaded: {codes}{extra}. "
+            f"Reactivate from Employee Management if needed."
+        )
+
+    total_new = len(newly_inactivated.get('factory', [])) + len(newly_inactivated.get('office', []))
+    if total_new:
+        all_new = newly_inactivated['factory'] + newly_inactivated['office']
+        codes = ', '.join(str(e['employee_code']) for e in all_new[:10])
+        extra = f' (+{total_new - 10} more)' if total_new > 10 else ''
+        parts.append(
+            f"{total_new} employee(s) auto-marked INACTIVE (no punch in last 7 days): "
+            f"{codes}{extra}."
+        )
+
+    if not parts:
+        return
+
+    title   = "Attendance Upload — Inactivity Alert"
+    message = ' | '.join(parts)[:500]   # notifications.message is VARCHAR(500)
+
+    try:
+        cursor.execute(
+            "EXEC proc_create_notification @user_id=?, @title=?, @message=?, @module='ATTENDANCE'",
+            (uploader_user_id, title, message)
+        )
+        logger.info(f"Inactivity notification sent to user_id={uploader_user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to send notification: {e}")
 
 
 class BulkAttendanceUpload:
@@ -164,9 +299,9 @@ class BulkAttendanceUpload:
                     punch_count = sum(1 for row in all_rows if row['employee_id'] in inactive_codes)
                     warnings.append({
                         'type': 'inactive_employee',
-                        'message': f'{len(inactive_codes)} INACTIVE employee(s) will be auto-activated ({punch_count} punches)',
+                        'message': f'{len(inactive_codes)} INACTIVE employee(s) found — their data will be SKIPPED ({punch_count} punches)',
                         'codes': list(inactive_codes)[:10],
-                        'detail': 'These employees will be automatically marked as ACTIVE when attendance is uploaded'
+                        'detail': 'These employees are inactive. Their attendance will not be uploaded. Reactivate them from Employee Management if needed.'
                     })
                 
                 if resigned_codes:
@@ -202,10 +337,11 @@ class BulkAttendanceUpload:
         }
 
     @staticmethod
-    def process_multiple_files(file_paths: list) -> dict:
+    def process_multiple_files(file_paths: list, uploader_user_id: int = None) -> dict:
         """
         Process multiple Excel files at once.
         Inserts all punches, then generates attendance once.
+        After processing, runs the inactivity check on all active employees.
         """
         all_rows = []
         all_errors = []
@@ -236,11 +372,15 @@ class BulkAttendanceUpload:
         successful = 0
         min_date = None
         max_date = None
+        skipped_inactive = []   # employees whose rows were skipped
         
         company_code = getattr(g, 'company_code', None)
         if not company_code:
             return {'success': False, 'message': 'Company context not set'}
         
+        # Cache employee lookups to avoid repeated DB hits for the same code
+        emp_cache = {}
+
         conn = None
         try:
             conn = connection_manager.get_company_connection(company_code)
@@ -251,19 +391,22 @@ class BulkAttendanceUpload:
                     enrollid = row['employee_id']
                     log_time = row['log_time']
                     
-                    # Track date range for ALL rows (including duplicates)
+                    # Track date range for ALL rows (including duplicates / skipped)
                     punch_date = log_time.date()
                     if min_date is None or punch_date < min_date:
                         min_date = punch_date
                     if max_date is None or punch_date > max_date:
                         max_date = punch_date
                     
-                    # Resolve employee_code -> employee_id
-                    cursor.execute(
-                        "SELECT employee_id, status FROM employees WHERE employee_code = ?",
-                        (str(enrollid),)
-                    )
-                    emp_row = cursor.fetchone()
+                    # Resolve employee_code -> employee_id (cached)
+                    if enrollid not in emp_cache:
+                        cursor.execute(
+                            "SELECT employee_id, status FROM employees WHERE employee_code = ?",
+                            (str(enrollid),)
+                        )
+                        emp_cache[enrollid] = cursor.fetchone()
+
+                    emp_row = emp_cache[enrollid]
                     if not emp_row:
                         all_errors.append({
                             'row': row.get('row_number'),
@@ -271,27 +414,22 @@ class BulkAttendanceUpload:
                             'error': f'No employee found with code {enrollid}'
                         })
                         continue
-                    employee_id = emp_row[0]
+
+                    employee_id     = emp_row[0]
                     employee_status = emp_row[1]
-                    
-                    # Auto-activate INACTIVE employees when attendance is uploaded
+
+                    # ── INACTIVE: skip upload, track for notification ──────
                     if employee_status == 'INACTIVE':
-                        try:
-                            cursor.execute(
-                                """INSERT INTO employee_status_history 
-                                   (employee_id, old_status, new_status, reason, changed_by, changed_at)
-                                   VALUES (?, 'INACTIVE', 'ACTIVE', 'Auto-activated by bulk attendance upload', 1, GETDATE())""",
-                                (employee_id,)
-                            )
-                            cursor.execute(
-                                "UPDATE employees SET status = 'ACTIVE' WHERE employee_id = ?",
-                                (employee_id,)
-                            )
-                            logger.info(f"Auto-activated INACTIVE employee {enrollid} (ID: {employee_id})")
-                        except Exception as activate_err:
-                            logger.warning(f"Failed to auto-activate employee {enrollid}: {activate_err}")
-                    
-                    # Skip RESIGNED employees
+                        # Only add once per employee code
+                        if not any(s['employee_code'] == str(enrollid) for s in skipped_inactive):
+                            skipped_inactive.append({
+                                'employee_id':   employee_id,
+                                'employee_code': str(enrollid),
+                            })
+                        logger.info(f"Skipped INACTIVE employee {enrollid} (ID: {employee_id})")
+                        continue
+
+                    # ── RESIGNED: skip with error ─────────────────────────
                     if employee_status == 'RESIGNED':
                         all_errors.append({
                             'row': row.get('row_number'),
@@ -326,6 +464,23 @@ class BulkAttendanceUpload:
                     })
             
             conn.commit()
+
+            # ── Inactivity check (single bulk query) ──────────────────────
+            newly_inactivated = {'factory': [], 'office': []}
+            try:
+                newly_inactivated = _run_inactivity_check(cursor, uploader_user_id)
+                conn.commit()
+            except Exception as inact_err:
+                logger.error(f"Inactivity check failed: {inact_err}")
+
+            # ── Notify uploader ───────────────────────────────────────────
+            if uploader_user_id:
+                try:
+                    _send_upload_notification(cursor, uploader_user_id,
+                                              skipped_inactive, newly_inactivated)
+                    conn.commit()
+                except Exception as notif_err:
+                    logger.error(f"Notification failed: {notif_err}")
             
         except Exception as e:
             logger.error(f"DB error during bulk upload: {e}")
@@ -334,21 +489,13 @@ class BulkAttendanceUpload:
             if conn:
                 connection_manager.return_connection(company_code, conn)
         
-        # Check if any punches are early morning (00:00-06:00) - these are night shift checkouts
-        has_early_morning_punches = any(
-            row['log_time'].time() < datetime.strptime('06:00:00', '%H:%M:%S').time()
-            for row in all_rows
-        )
-        
         # Generate attendance once for all dates
         if min_date and max_date:
             try:
                 # ALWAYS re-process from previous day to handle night shift scenarios
-                # Night shift workers may check in on day N-1 and check out on day N
                 actual_start_date = min_date - timedelta(days=1)
                 logger.info(f"Reprocessing attendance from {actual_start_date} to {max_date} (includes previous day for night shift)")
                 
-                # Delete existing records first to avoid update issues
                 conn = connection_manager.get_company_connection(company_code)
                 cursor = conn.cursor()
                 cursor.execute(
@@ -369,7 +516,13 @@ class BulkAttendanceUpload:
                 logger.info(f"Factory attendance generated for {actual_start_date} to {max_date}")
             except Exception as e:
                 logger.warning(f"Attendance generation failed: {e}")
-        
+
+        # Build inactivity summary for the API response
+        total_newly_inactivated = (
+            len(newly_inactivated.get('factory', [])) +
+            len(newly_inactivated.get('office', []))
+        )
+
         return {
             'success': True,
             'message': f'Processed {successful} punch records from {len(file_paths)} file(s). Attendance generated.',
@@ -380,14 +533,20 @@ class BulkAttendanceUpload:
             'date_range': {
                 'from': str(min_date) if min_date else None,
                 'to': str(max_date) if max_date else None
+            },
+            'inactivity_summary': {
+                'skipped_inactive_employees': skipped_inactive,
+                'newly_inactivated_count': total_newly_inactivated,
+                'newly_inactivated': newly_inactivated,
             }
         }
 
     @staticmethod
-    def validate_and_process_file(file_path: str) -> dict:
+    def validate_and_process_file(file_path: str, uploader_user_id: int = None) -> dict:
         """
         Parse device USB export and insert into attendance_raw_logs.
         Then trigger factory attendance generation for the date range.
+        After processing, runs the inactivity check on all active employees.
         """
         rows = []
         errors = []
@@ -412,27 +571,35 @@ class BulkAttendanceUpload:
         successful = 0
         min_date = None
         max_date = None
+        skipped_inactive = []   # employees whose rows were skipped
 
         company_code = getattr(g, 'company_code', None)
         if not company_code:
             return {'success': False, 'message': 'Company context not set'}
 
+        # Cache employee lookups to avoid repeated DB hits for the same code
+        emp_cache = {}
+
         conn = None
+        newly_inactivated = {'factory': [], 'office': []}
         try:
             conn = connection_manager.get_company_connection(company_code)
             cursor = conn.cursor()
 
             for row in rows:
                 try:
-                    enrollid = row['employee_id']  # this is actually the device enrollid = employee_code
+                    enrollid = row['employee_id']  # device enrollid = employee_code
                     log_time = row['log_time']
 
-                    # Resolve employee_code -> employee_id
-                    cursor.execute(
-                        "SELECT employee_id, status FROM employees WHERE employee_code = ?",
-                        (str(enrollid),)
-                    )
-                    emp_row = cursor.fetchone()
+                    # Resolve employee_code -> employee_id (cached)
+                    if enrollid not in emp_cache:
+                        cursor.execute(
+                            "SELECT employee_id, status FROM employees WHERE employee_code = ?",
+                            (str(enrollid),)
+                        )
+                        emp_cache[enrollid] = cursor.fetchone()
+
+                    emp_row = emp_cache[enrollid]
                     if not emp_row:
                         errors.append({
                             'row': row.get('row_number'),
@@ -440,27 +607,21 @@ class BulkAttendanceUpload:
                             'error': f'No employee found with code {enrollid}'
                         })
                         continue
-                    employee_id = emp_row[0]
+
+                    employee_id     = emp_row[0]
                     employee_status = emp_row[1]
-                    
-                    # Auto-activate INACTIVE employees when attendance is uploaded
+
+                    # ── INACTIVE: skip upload, track for notification ──────
                     if employee_status == 'INACTIVE':
-                        try:
-                            cursor.execute(
-                                """INSERT INTO employee_status_history 
-                                   (employee_id, old_status, new_status, reason, changed_by, changed_at)
-                                   VALUES (?, 'INACTIVE', 'ACTIVE', 'Auto-activated by bulk attendance upload', 1, GETDATE())""",
-                                (employee_id,)
-                            )
-                            cursor.execute(
-                                "UPDATE employees SET status = 'ACTIVE' WHERE employee_id = ?",
-                                (employee_id,)
-                            )
-                            logger.info(f"Auto-activated INACTIVE employee {enrollid} (ID: {employee_id})")
-                        except Exception as activate_err:
-                            logger.warning(f"Failed to auto-activate employee {enrollid}: {activate_err}")
-                    
-                    # Skip RESIGNED employees
+                        if not any(s['employee_code'] == str(enrollid) for s in skipped_inactive):
+                            skipped_inactive.append({
+                                'employee_id':   employee_id,
+                                'employee_code': str(enrollid),
+                            })
+                        logger.info(f"Skipped INACTIVE employee {enrollid} (ID: {employee_id})")
+                        continue
+
+                    # ── RESIGNED: skip with error ─────────────────────────
                     if employee_status == 'RESIGNED':
                         errors.append({
                             'row': row.get('row_number'),
@@ -503,6 +664,22 @@ class BulkAttendanceUpload:
 
             conn.commit()
 
+            # ── Inactivity check (single bulk query) ──────────────────────
+            try:
+                newly_inactivated = _run_inactivity_check(cursor, uploader_user_id)
+                conn.commit()
+            except Exception as inact_err:
+                logger.error(f"Inactivity check failed: {inact_err}")
+
+            # ── Notify uploader ───────────────────────────────────────────
+            if uploader_user_id:
+                try:
+                    _send_upload_notification(cursor, uploader_user_id,
+                                              skipped_inactive, newly_inactivated)
+                    conn.commit()
+                except Exception as notif_err:
+                    logger.error(f"Notification failed: {notif_err}")
+
         except Exception as e:
             logger.error(f"DB error during bulk upload: {e}")
             return {'success': False, 'message': f'Database error: {str(e)}'}
@@ -511,20 +688,12 @@ class BulkAttendanceUpload:
                 connection_manager.return_connection(company_code, conn)
 
         # --- Trigger factory attendance generation ---
-        # Check if any punches are early morning (00:00-06:00) - these are night shift checkouts
-        has_early_morning_punches = any(
-            row['log_time'].time() < datetime.strptime('06:00:00', '%H:%M:%S').time()
-            for row in rows
-        )
-        
         if min_date and max_date:
             try:
                 # ALWAYS re-process from previous day to handle night shift scenarios
-                # Night shift workers may check in on day N-1 and check out on day N
                 actual_start_date = min_date - timedelta(days=1)
                 logger.info(f"Reprocessing attendance from {actual_start_date} to {max_date} (includes previous day for night shift)")
                 
-                # Delete existing records first to avoid update issues
                 conn = connection_manager.get_company_connection(company_code)
                 cursor = conn.cursor()
                 cursor.execute(
@@ -546,6 +715,11 @@ class BulkAttendanceUpload:
             except Exception as e:
                 logger.warning(f"Attendance generation failed (logs still saved): {e}")
 
+        total_newly_inactivated = (
+            len(newly_inactivated.get('factory', [])) +
+            len(newly_inactivated.get('office', []))
+        )
+
         return {
             'success': True,
             'message': f'Processed {successful} punch records. Attendance generated.',
@@ -556,6 +730,11 @@ class BulkAttendanceUpload:
             'date_range': {
                 'from': str(min_date) if min_date else None,
                 'to': str(max_date) if max_date else None
+            },
+            'inactivity_summary': {
+                'skipped_inactive_employees': skipped_inactive,
+                'newly_inactivated_count': total_newly_inactivated,
+                'newly_inactivated': newly_inactivated,
             }
         }
 

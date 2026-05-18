@@ -119,7 +119,7 @@ const documentService = {
     },
 
     uploadEmployeeDocument: async (employeeId, file, documentType, documentName) => {
-        const token = sessionStorage.getItem('hrms_token');
+        const token = localStorage.getItem('hrms_token');
         const companyCode = import.meta.env.VITE_COMPANY_CODE;
         const currentView = localStorage.getItem('preferred_view') || 'HR';
 
@@ -141,14 +141,14 @@ const documentService = {
     },
 
     getDocumentFileUrl: (documentId) => {
-        const token = sessionStorage.getItem('hrms_token');
+        const token = localStorage.getItem('hrms_token');
         const companyCode = import.meta.env.VITE_COMPANY_CODE;
         // Returns a URL that can be opened in a new tab
         return `${api.baseURL}/documents/employee-docs/file/${documentId}`;
     },
 
     serveEmployeeDocument: async (documentId) => {
-        const token = sessionStorage.getItem('hrms_token');
+        const token = localStorage.getItem('hrms_token');
         const companyCode = import.meta.env.VITE_COMPANY_CODE;
         const currentView = localStorage.getItem('preferred_view') || 'HR';
 

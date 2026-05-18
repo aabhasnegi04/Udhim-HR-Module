@@ -94,7 +94,7 @@ const Login = () => {
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    backgroundColor: 'rgba(0, 0, 0, 0.45)',
                     zIndex: 1,
                 },
             }}
@@ -134,22 +134,40 @@ const Login = () => {
                     zIndex: 2,
                     width: isMobile ? '92%' : isTablet ? '400px' : '420px',
                     maxWidth: '420px',
-                    borderRadius: 3,
-                    background: '#ffffff',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+                    borderRadius: 4,
+                    background: 'rgba(255, 255, 255, 0.82)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
+                    boxShadow: '0 8px 40px rgba(0, 0, 0, 0.25)',
+                    border: '1px solid rgba(255, 255, 255, 0.6)',
                     p: isMobile ? 3.5 : isTablet ? 4 : 4.5,
                     mx: 2,
                 }}
             >
                 {/* Logo and Title */}
                 <Box sx={{ textAlign: 'center', mb: isMobile ? 3 : 3.5 }}>
-                    <BusinessIcon
-                        sx={{
-                            fontSize: isMobile ? 44 : isTablet ? 50 : 54,
-                            color: 'primary.main',
-                            mb: 1.5,
-                        }}
-                    />
+                    {import.meta.env.VITE_COMPANY_LOGO ? (
+                        <Box
+                            component="img"
+                            src={import.meta.env.VITE_COMPANY_LOGO}
+                            alt={import.meta.env.VITE_COMPANY_NAME || 'Company Logo'}
+                            sx={{
+                                height: isMobile ? 56 : isTablet ? 64 : 72,
+                                width: 'auto',
+                                maxWidth: '200px',
+                                objectFit: 'contain',
+                                mb: 1.5,
+                            }}
+                        />
+                    ) : (
+                        <BusinessIcon
+                            sx={{
+                                fontSize: isMobile ? 44 : isTablet ? 50 : 54,
+                                color: 'primary.main',
+                                mb: 1.5,
+                            }}
+                        />
+                    )}
                     <Typography
                         variant={isMobile ? 'h5' : 'h4'}
                         component="h1"
@@ -296,17 +314,17 @@ const Login = () => {
                             fontWeight: 600,
                             borderRadius: 1.5,
                             textTransform: 'none',
-                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            boxShadow: '0 2px 8px rgba(102, 126, 234, 0.3)',
+                            background: 'linear-gradient(135deg, #5c4033 0%, #3e2723 100%)',
+                            boxShadow: '0 2px 8px rgba(62, 39, 35, 0.35)',
                             '&:hover': {
-                                background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
-                                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                                background: 'linear-gradient(135deg, #6d4c41 0%, #4e342e 100%)',
+                                boxShadow: '0 4px 12px rgba(62, 39, 35, 0.45)',
                                 transform: 'translateY(-1px)',
                             },
                             '&:active': {
                                 transform: 'translateY(0)',
                             },
-                            '&:disabled': {
+                            '&.Mui-disabled': {
                                 background: '#e0e0e0',
                                 color: '#9e9e9e',
                                 boxShadow: 'none',
@@ -329,10 +347,11 @@ const Login = () => {
                             sx={{
                                 fontSize: isMobile ? '0.813rem' : '0.875rem',
                                 textTransform: 'none',
-                                color: 'primary.main',
+                                color: '#5c4033',
                                 '&:hover': {
                                     backgroundColor: 'transparent',
                                     textDecoration: 'underline',
+                                    color: '#3e2723',
                                 },
                             }}
                         >

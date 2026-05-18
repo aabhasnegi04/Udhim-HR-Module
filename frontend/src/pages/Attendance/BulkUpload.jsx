@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import {
-    Box, Typography, Paper, Button, Alert, Stack
+    Box, Typography, Paper, Button, Alert, Stack,
+    Collapse, Chip, Divider
 } from '@mui/material';
 import {
     CloudUpload as UploadIcon,
     Download as DownloadIcon,
-    Info as InfoIcon
+    Info as InfoIcon,
+    PersonOff as PersonOffIcon,
+    ExpandMore as ExpandIcon,
+    ExpandLess as CollapseIcon,
 } from '@mui/icons-material';
 import attendanceService from '../../services/attendanceService';
 import BulkUploadDialog from './BulkUploadDialog';
@@ -14,6 +18,9 @@ const BulkUpload = () => {
     const [showUploadDialog, setShowUploadDialog] = useState(false);
     const [success, setSuccess] = useState('');
     const [error, setError] = useState('');
+    const [inactivitySummary, setInactivitySummary] = useState(null);
+    const [showSkipped, setShowSkipped] = useState(false);
+    const [showNewlyInactive, setShowNewlyInactive] = useState(false);
 
     const downloadTemplate = async () => {
         try {
@@ -24,9 +31,30 @@ const BulkUpload = () => {
     };
 
     const handleUploadSuccess = (result) => {
-        setSuccess(`Successfully processed ${result.successful_rows} punch records. Attendance generated for ${result.date_range?.from} to ${result.date_range?.to}`);
-        setTimeout(() => setSuccess(''), 5000);
+        setSuccess(
+            `Successfully processed ${result.successful_rows} punch records. ` +
+            `Attendance generated for ${result.date_range?.from} to ${result.date_range?.to}`
+        );
+        setTimeout(() => setSuccess(''), 6000);
+
+        // Show inactivity summary if there's anything to report
+        const summary = result.inactivity_summary;
+        if (
+            summary &&
+            (summary.skipped_inactive_employees?.length > 0 || summary.newly_inactivated_count > 0)
+        ) {
+            setInactivitySummary(summary);
+            setShowSkipped(false);
+            setShowNewlyInactive(false);
+        } else {
+            setInactivitySummary(null);
+        }
     };
+
+    const skipped = inactivitySummary?.skipped_inactive_employees ?? [];
+    const newlyFactory = inactivitySummary?.newly_inactivated?.factory ?? [];
+    const newlyOffice = inactivitySummary?.newly_inactivated?.office ?? [];
+    const allNewlyInactive = [...newlyFactory, ...newlyOffice];
 
     return (
         <Box>
@@ -48,6 +76,93 @@ const BulkUpload = () => {
             {error && (
                 <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>
                     {error}
+                </Alert>
+            )}
+
+            {/* Inactivity Summary — persists until dismissed */}
+            {inactivitySummary && (
+                <Alert
+                    severity="warning"
+                    icon={<PersonOffIcon />}
+                    onClose={() => setInactivitySummary(null)}
+                    sx={{ mb: 2 }}
+                >
+                    <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                        Employee Inactivity Report
+                    </Typography>
+
+                    {/* Skipped inactive employees */}
+                    {skipped.length > 0 && (
+                        <Box sx={{ mb: allNewlyInactive.length > 0 ? 1.5 : 0 }}>
+                            <Box
+                                sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}
+                                onClick={() => setShowSkipped(v => !v)}
+                            >
+                                <Chip
+                                    label={`${skipped.length} skipped`}
+                                    size="small"
+                                    color="warning"
+                                    variant="outlined"
+                                />
+                                <Typography variant="body2">
+                                    INACTIVE employee(s) found in upload — their attendance was <strong>not uploaded</strong>.
+                                    Reactivate from Employee Management if needed.
+                                </Typography>
+                                {showSkipped ? <CollapseIcon fontSize="small" /> : <ExpandIcon fontSize="small" />}
+                            </Box>
+                            <Collapse in={showSkipped}>
+                                <Box sx={{ mt: 1, ml: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                    {skipped.map(e => (
+                                        <Chip
+                                            key={e.employee_code}
+                                            label={`#${e.employee_code}`}
+                                            size="small"
+                                            variant="outlined"
+                                            color="default"
+                                        />
+                                    ))}
+                                </Box>
+                            </Collapse>
+                        </Box>
+                    )}
+
+                    {skipped.length > 0 && allNewlyInactive.length > 0 && (
+                        <Divider sx={{ my: 1 }} />
+                    )}
+
+                    {/* Newly auto-inactivated employees */}
+                    {allNewlyInactive.length > 0 && (
+                        <Box>
+                            <Box
+                                sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}
+                                onClick={() => setShowNewlyInactive(v => !v)}
+                            >
+                                <Chip
+                                    label={`${allNewlyInactive.length} auto-inactivated`}
+                                    size="small"
+                                    color="error"
+                                    variant="outlined"
+                                />
+                                <Typography variant="body2">
+                                    Employee(s) marked <strong>INACTIVE</strong> — no punch recorded in the last 7 days.
+                                </Typography>
+                                {showNewlyInactive ? <CollapseIcon fontSize="small" /> : <ExpandIcon fontSize="small" />}
+                            </Box>
+                            <Collapse in={showNewlyInactive}>
+                                <Box sx={{ mt: 1, ml: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                    {allNewlyInactive.map(e => (
+                                        <Chip
+                                            key={e.employee_code}
+                                            label={`#${e.employee_code} ${e.name || ''}`}
+                                            size="small"
+                                            variant="outlined"
+                                            color="error"
+                                        />
+                                    ))}
+                                </Box>
+                            </Collapse>
+                        </Box>
+                    )}
                 </Alert>
             )}
 
@@ -84,6 +199,12 @@ const BulkUpload = () => {
                     <Alert severity="warning">
                         <Typography variant="body2">
                             <strong>Expected Format:</strong> Excel file must have columns: ID, Name, Time
+                        </Typography>
+                    </Alert>
+
+                    <Alert severity="info">
+                        <Typography variant="body2">
+                            <strong>Inactivity Check:</strong> After every upload, employees with no punch in the last 7 days are automatically marked Inactive. Office employees on approved leave are protected.
                         </Typography>
                     </Alert>
                 </Stack>

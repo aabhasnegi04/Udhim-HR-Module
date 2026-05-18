@@ -105,7 +105,7 @@ const BulkUploads = () => {
                 ? '/admin/bulk-upload/employee-images'
                 : '/admin/bulk-upload/attendance';
 
-            const token = sessionStorage.getItem('hrms_token');
+            const token = localStorage.getItem('hrms_token');
             const companyCode = import.meta.env.VITE_COMPANY_CODE;
             const currentView = localStorage.getItem('preferred_view') || 'HR';
             

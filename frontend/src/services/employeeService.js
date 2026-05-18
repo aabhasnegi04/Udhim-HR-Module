@@ -246,7 +246,7 @@ class EmployeeService {
         method: 'GET',
         headers: {
           'X-Company-Code': import.meta.env.VITE_COMPANY_CODE || 'udhim',
-          'Authorization': `Bearer ${sessionStorage.getItem('hrms_token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('hrms_token')}`,
         },
       });
 

@@ -3,6 +3,7 @@ import { Box, Tabs, Tab, Typography, Paper } from '@mui/material';
 import FactoryIcon from '@mui/icons-material/Factory';
 import RateManagement from '../components/FactoryPayroll/RateManagement';
 import PayrollPeriods from '../components/FactoryPayroll/PayrollPeriods';
+import FactoryPayslips from '../components/FactoryPayroll/FactoryPayslips';
 import PayrollConfig from '../components/FactoryPayroll/PayrollConfig';
 
 function TabPanel({ children, value, index }) {
@@ -45,6 +46,7 @@ export default function FactoryPayroll() {
         >
           <Tab label="Rate Management" />
           <Tab label="Payroll Periods" />
+          <Tab label="Payslips" />
           <Tab label="Configuration" />
         </Tabs>
       </Paper>
@@ -59,6 +61,10 @@ export default function FactoryPayroll() {
       </TabPanel>
 
       <TabPanel value={currentTab} index={2}>
+        <FactoryPayslips />
+      </TabPanel>
+
+      <TabPanel value={currentTab} index={3}>
         <PayrollConfig />
       </TabPanel>
     </Box>

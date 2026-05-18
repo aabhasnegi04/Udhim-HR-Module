@@ -94,35 +94,22 @@ const Dashboard = () => {
         setHrLoading(true);
         setError('');
         try {
-            const [statsRes, alertsRes, trendRes, activitiesRes] = await Promise.allSettled([
-                dashboardService.getHRDashboardStats(),
-                dashboardService.getHRAlerts(),
-                dashboardService.getHRAttendanceTrend(),
-                dashboardService.getHRRecentActivities(5),
-            ]);
+            // Single call — backend returns everything at once
+            const res = await dashboardService.getHRDashboardStats();
 
-            if (statsRes.status === 'fulfilled' && statsRes.value.success) {
-                const d = statsRes.value.data;
+            if (res.success) {
+                const d = res.data;
                 setStats({
-                    totalEmployees: d.total_employees || 0,
-                    presentToday: d.present_today || 0,
-                    absentToday: d.absent_today ?? Math.max(0, (d.total_employees || 0) - (d.present_today || 0) - (d.on_leave_today || 0)),
-                    onLeaveToday: d.on_leave_today || 0,
+                    totalEmployees:       d.total_employees || 0,
+                    presentToday:         d.present_today || 0,
+                    absentToday:          d.absent_today || 0,
+                    onLeaveToday:         d.on_leave_today || 0,
                     attendancePercentage: d.attendance_percentage || 0,
-                    pendingApprovals: d.pending_approvals || 0,
+                    pendingApprovals:     d.pending_approvals || 0,
                 });
-            }
-
-            if (alertsRes.status === 'fulfilled' && alertsRes.value.success) {
-                setAlerts(alertsRes.value.data.alerts || []);
-            }
-
-            if (trendRes.status === 'fulfilled' && trendRes.value.success) {
-                setTrend(trendRes.value.data.trend || []);
-            }
-
-            if (activitiesRes.status === 'fulfilled' && activitiesRes.value.success) {
-                setRecentActivities(activitiesRes.value.data.activities || []);
+                setAlerts(d.alerts || []);
+                setTrend(d.trend || []);
+                setRecentActivities(d.activities || []);
             }
         } catch (e) {
             setError('Failed to load dashboard data');

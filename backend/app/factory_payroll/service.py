@@ -501,6 +501,47 @@ class FactoryPayrollService:
                     'success': False,
                     'message': result.get('message', 'Failed to lock period')
                 }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Error locking period: {str(e)}'
+            }
+
+    @staticmethod
+    def unlock_payroll_period(period_id, unlocked_by):
+        """Unlock a locked payroll period (revert to CALCULATED)"""
+        try:
+            result = MultiTenantExecutor.execute_procedure(
+                'proc_unlock_factory_payroll_period',
+                {'period_id': period_id, 'unlocked_by': unlocked_by}
+            )
+            if result.get('success'):
+                return {'success': True, 'message': 'Payroll period unlocked successfully'}
+            else:
+                return {'success': False, 'message': result.get('message', 'Failed to unlock period')}
+        except Exception as e:
+            return {'success': False, 'message': f'Error unlocking period: {str(e)}'}
+
+    @staticmethod
+    def delete_payroll_period(period_id):
+        """Delete a payroll period and all its data (DRAFT/CALCULATED only)"""
+        try:
+            result = MultiTenantExecutor.execute_procedure(
+                'proc_delete_factory_payroll_period',
+                {'period_id': period_id}
+            )
+            if result.get('success'):
+                data = result.get('data', [])
+                row = data[0] if data else {}
+                if isinstance(row, list): row = row[0] if row else {}
+                if row.get('success') == 1:
+                    return {'success': True, 'message': row.get('message', 'Period deleted')}
+                else:
+                    return {'success': False, 'message': row.get('message', 'Failed to delete period')}
+            return {'success': False, 'message': 'Failed to delete period'}
+        except Exception as e:
+            return {'success': False, 'message': f'Error deleting period: {str(e)}'}
                 
         except Exception as e:
             return {

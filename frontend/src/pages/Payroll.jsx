@@ -38,6 +38,7 @@ import BankAdvice from './Payroll/BankAdvice';
 // Import Factory Payroll components
 import RateManagement from '../components/FactoryPayroll/RateManagement';
 import PayrollPeriods from '../components/FactoryPayroll/PayrollPeriods';
+import FactoryPayslips from '../components/FactoryPayroll/FactoryPayslips';
 import PayrollConfig from '../components/FactoryPayroll/PayrollConfig';
 
 const Payroll = () => {
@@ -80,6 +81,7 @@ const Payroll = () => {
                 return [
                     { label: 'Rate Management', icon: <PeopleIcon />, component: <RateManagement /> },
                     { label: 'Payroll Periods', icon: <ProcessIcon />, component: <PayrollPeriods /> },
+                    { label: 'Payslips', icon: <PayslipIcon />, component: <FactoryPayslips /> },
                     { label: 'Configuration', icon: <StructureIcon />, component: <PayrollConfig /> }
                 ];
             } else {

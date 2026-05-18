@@ -161,10 +161,10 @@ export const exportFactoryGridToExcel = async (startDate, endDate, records, payr
 
             // Fill payroll columns from payroll data if available
             const payroll = payrollMap[empId];
-            rowData.rate        = payroll?.daily_rate   ? Number(payroll.daily_rate).toFixed(2)   : '';
-            rowData.grossAmount = payroll?.gross_earnings ? Number(payroll.gross_earnings).toFixed(2) : '';
+            rowData.rate        = payroll?.daily_rate    ? Number(payroll.daily_rate).toFixed(2)    : '';
+            rowData.grossAmount = payroll?.gross_earnings != null ? Number(payroll.gross_earnings).toFixed(2) : '';
             rowData.advance     = '';  // Advance deductions — kept blank (not in system yet)
-            rowData.netPayable  = payroll?.net_salary   ? Number(payroll.net_salary).toFixed(2)   : '';
+            rowData.netPayable  = payroll?.net_salary    != null ? Number(payroll.net_salary).toFixed(2)    : '';
             rowData.signature   = '';
             
             const row = worksheet.addRow(rowData);

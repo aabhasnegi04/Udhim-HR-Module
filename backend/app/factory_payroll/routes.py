@@ -689,47 +689,58 @@ def get_payroll_summary_by_month():
 @company_required
 @role_required("HR")
 def lock_payroll_period():
-    """
-    Lock a payroll period
-    
-    Request Body:
-        {
-            "period_id": 1
-        }
-    """
+    """Lock a payroll period"""
     try:
         data = request.get_json()
-        
-        if not data:
-            return error_response("Request body is required", 400)
-        
-        period_id = data.get('period_id')
-        
-        if not period_id:
+        if not data or not data.get('period_id'):
             return error_response("period_id is required", 400)
-        
-        # Get current user ID
         locked_by = get_jwt_identity()
-        
         result = FactoryPayrollService.lock_payroll_period(
-            period_id=period_id,
+            period_id=data['period_id'],
             locked_by=locked_by
         )
-        
         if result['success']:
             return success_response(result['message'], result.get('data'))
         else:
             return error_response(result['message'], 400)
-            
     except Exception as e:
         return error_response(f"Error locking period: {str(e)}", 500)
 
 
-# ============================================
-# PAYROLL CALCULATION ENDPOINTS (Phase 2 - Step 2)
-# ============================================
-# TODO: Add payroll calculation endpoints here
-# - POST /periods - Create payroll period
-# - POST /calculate - Calculate payroll for period
-# - GET /summary - Get payroll summary
-# etc.
+@factory_payroll_bp.route('/unlock', methods=['POST'])
+@jwt_required
+@company_required
+@role_required("HR")
+def unlock_payroll_period():
+    """Unlock a locked payroll period (revert to CALCULATED)"""
+    try:
+        data = request.get_json()
+        if not data or not data.get('period_id'):
+            return error_response("period_id is required", 400)
+        unlocked_by = get_jwt_identity()
+        result = FactoryPayrollService.unlock_payroll_period(
+            period_id=data['period_id'],
+            unlocked_by=unlocked_by
+        )
+        if result['success']:
+            return success_response(result['message'], result.get('data'))
+        else:
+            return error_response(result['message'], 400)
+    except Exception as e:
+        return error_response(f"Error unlocking period: {str(e)}", 500)
+
+
+@factory_payroll_bp.route('/periods/<int:period_id>', methods=['DELETE'])
+@jwt_required
+@company_required
+@role_required("HR")
+def delete_payroll_period(period_id):
+    """Delete a payroll period (DRAFT or CALCULATED only, not LOCKED)"""
+    try:
+        result = FactoryPayrollService.delete_payroll_period(period_id)
+        if result['success']:
+            return success_response(result['message'])
+        else:
+            return error_response(result['message'], 400)
+    except Exception as e:
+        return error_response(f"Error deleting period: {str(e)}", 500)

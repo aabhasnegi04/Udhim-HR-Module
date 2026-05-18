@@ -7,7 +7,8 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon, Calculate as CalculateIcon, Lock as LockIcon,
-  Visibility as ViewIcon
+  Visibility as ViewIcon, Refresh as RefreshIcon, LockOpen as LockOpenIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import factoryPayrollService from '../../services/factoryPayrollService';
 
@@ -100,7 +101,7 @@ export default function PayrollPeriods() {
   };
 
   const handleLockPeriod = async (period) => {
-    if (!confirm(`Lock payroll period ${period.period_name}? This cannot be undone.`)) return;
+    if (!confirm(`Lock payroll period ${period.period_name}? You can unlock it later if needed.`)) return;
 
     try {
       const response = await factoryPayrollService.lockPayrollPeriod(period.period_id);
@@ -113,6 +114,39 @@ export default function PayrollPeriods() {
       }
     } catch (err) {
       setError('Failed to lock period');
+    }
+  };
+
+  const handleUnlockPeriod = async (period) => {
+    if (!confirm(`Unlock ${period.period_name}? This will revert it to CALCULATED status so you can recalculate.`)) return;
+
+    try {
+      const response = await factoryPayrollService.unlockPayrollPeriod(period.period_id);
+
+      if (response.success) {
+        setSuccess(`Period ${period.period_name} unlocked`);
+        fetchPeriods();
+      } else {
+        setError(response.message || 'Failed to unlock period');
+      }
+    } catch (err) {
+      setError('Failed to unlock period');
+    }
+  };
+
+  const handleDeletePeriod = async (period) => {
+    if (!confirm(`Delete payroll period "${period.period_name}"? This will permanently remove all calculated data for this period.`)) return;
+
+    try {
+      const response = await factoryPayrollService.deletePayrollPeriod(period.period_id);
+      if (response.success) {
+        setSuccess(`Period ${period.period_name} deleted`);
+        fetchPeriods();
+      } else {
+        setError(response.message || 'Failed to delete period');
+      }
+    } catch (err) {
+      setError('Failed to delete period');
     }
   };
 
@@ -197,15 +231,25 @@ export default function PayrollPeriods() {
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
                       {period.status === 'DRAFT' && (
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => handleCalculatePayroll(period)}
-                          disabled={calculating}
-                          title="Calculate Payroll"
-                        >
-                          <CalculateIcon />
-                        </IconButton>
+                        <>
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => handleCalculatePayroll(period)}
+                            disabled={calculating}
+                            title="Calculate Payroll"
+                          >
+                            <CalculateIcon />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeletePeriod(period)}
+                            title="Delete Period"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </>
                       )}
                       {period.status === 'CALCULATED' && (
                         <>
@@ -219,23 +263,50 @@ export default function PayrollPeriods() {
                           </IconButton>
                           <IconButton
                             size="small"
+                            color="warning"
+                            onClick={() => handleCalculatePayroll(period)}
+                            disabled={calculating}
+                            title="Recalculate Payroll"
+                          >
+                            <RefreshIcon />
+                          </IconButton>
+                          <IconButton
+                            size="small"
                             color="success"
                             onClick={() => handleLockPeriod(period)}
                             title="Lock Period"
                           >
                             <LockIcon />
                           </IconButton>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeletePeriod(period)}
+                            title="Delete Period"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
                         </>
                       )}
                       {period.status === 'LOCKED' && (
-                        <IconButton
-                          size="small"
-                          color="info"
-                          onClick={() => handleViewSummary(period)}
-                          title="View Summary"
-                        >
-                          <ViewIcon />
-                        </IconButton>
+                        <>
+                          <IconButton
+                            size="small"
+                            color="info"
+                            onClick={() => handleViewSummary(period)}
+                            title="View Summary"
+                          >
+                            <ViewIcon />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            onClick={() => handleUnlockPeriod(period)}
+                            title="Unlock Period"
+                          >
+                            <LockOpenIcon />
+                          </IconButton>
+                        </>
                       )}
                     </Box>
                   </TableCell>
@@ -306,10 +377,10 @@ export default function PayrollPeriods() {
                   <TableRow key={row.employee_id}>
                     <TableCell>{row.employee_name}</TableCell>
                     <TableCell align="right">{row.days_present}</TableCell>
-                    <TableCell align="right">{row.total_hours_worked?.toFixed(2)}</TableCell>
-                    <TableCell align="right">₹{row.basic_pay?.toFixed(2)}</TableCell>
-                    <TableCell align="right">₹{row.overtime_pay?.toFixed(2)}</TableCell>
-                    <TableCell align="right"><strong>₹{row.net_salary?.toFixed(2)}</strong></TableCell>
+                    <TableCell align="right">{Number(row.total_hours_worked || 0).toFixed(2)}</TableCell>
+                    <TableCell align="right">₹{Number(row.basic_pay || 0).toFixed(2)}</TableCell>
+                    <TableCell align="right">₹{Number(row.overtime_pay || 0).toFixed(2)}</TableCell>
+                    <TableCell align="right"><strong>₹{Number(row.net_salary || 0).toFixed(2)}</strong></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

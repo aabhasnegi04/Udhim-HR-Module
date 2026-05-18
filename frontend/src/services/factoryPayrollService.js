@@ -126,11 +126,19 @@ const factoryPayrollService = {
 
   // Lock payroll period
   lockPayrollPeriod: async (periodId) => {
-    const response = await api.post('/factory-payroll/lock', {
-      period_id: periodId
-    });
+    const response = await api.post('/factory-payroll/lock', { period_id: periodId });
     return response;
-  }
+  },
+
+  unlockPayrollPeriod: async (periodId) => {
+    const response = await api.post('/factory-payroll/unlock', { period_id: periodId });
+    return response;
+  },
+
+  deletePayrollPeriod: async (periodId) => {
+    const response = await api.delete(`/factory-payroll/periods/${periodId}`);
+    return response;
+  },
 };
 
 export default factoryPayrollService;

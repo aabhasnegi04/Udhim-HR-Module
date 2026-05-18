@@ -373,18 +373,36 @@ const AttendanceReports = ({ attendanceType = 'office' }) => {
                 return;
             }
 
-            // For monthly reports, also fetch payroll data to fill Rate/Gross/Net columns
+            // For monthly reports, fetch:
+            // 1. Worker rates (always available once assigned)
+            // 2. Payroll summary (only available after payroll is calculated)
             let payrollData = [];
             if (selectedReport === 'monthly') {
                 try {
+                    // Try payroll summary first (has full breakdown)
                     const payrollResponse = await import('../../services/api').then(m => m.default.get(
                         `/factory-payroll/summary-by-month?year=${startDate.year()}&month=${startDate.month() + 1}`
                     ));
-                    if (payrollResponse.success && payrollResponse.data) {
+                    if (payrollResponse.success && Array.isArray(payrollResponse.data) && payrollResponse.data.length > 0) {
                         payrollData = payrollResponse.data;
+                    } else {
+                        // Payroll not calculated yet — fall back to just worker rates
+                        const ratesResponse = await import('../../services/api').then(m => m.default.get(
+                            `/factory-payroll/workers-with-rates?employee_status=ALL`
+                        ));
+                        if (ratesResponse.success && ratesResponse.data) {
+                            // Map to same shape payrollMap expects: {employee_id, daily_rate}
+                            payrollData = ratesResponse.data.map(w => ({
+                                employee_id: w.employee_id,
+                                daily_rate: w.daily_rate,
+                                // gross/net not available yet
+                                gross_earnings: null,
+                                net_salary: null,
+                            }));
+                        }
                     }
                 } catch {
-                    // Payroll not calculated yet — columns will be blank
+                    // silently ignore — columns stay blank
                 }
             }
 

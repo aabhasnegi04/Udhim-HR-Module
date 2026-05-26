@@ -40,6 +40,7 @@ import dayjs from 'dayjs';
 import attendanceService from '../../services/attendanceService';
 import employeeService from '../../services/employeeService';
 import { exportFactoryGridToExcel } from './factoryGridExport';
+import DeptShiftRangeReport from './DeptShiftRangeReport';
 
 const AttendanceReports = ({ attendanceType = 'office' }) => {
     const [reportCategory, setReportCategory] = useState(attendanceType); // Sync with parent
@@ -72,6 +73,7 @@ const AttendanceReports = ({ attendanceType = 'office' }) => {
     const reportTypes = [
         { value: 'dateRange', label: 'Date Range Report', icon: <DateIcon /> },
         { value: 'monthly', label: 'Monthly Summary', icon: <ReportIcon /> },
+        { value: 'deptShiftRange', label: 'Dept Shift Range', icon: <FactoryIcon /> },
     ];
 
     // Load employees on mount
@@ -798,6 +800,34 @@ const AttendanceReports = ({ attendanceType = 'office' }) => {
                 return null;
         }
     };
+
+    // If deptShiftRange is selected, render it outside the main Paper wrapper
+    if (selectedReport === 'deptShiftRange') {
+        return (
+            <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
+                <Box sx={{ mb: 2 }}>
+                    <FormControl size="small" sx={{ minWidth: 220 }}>
+                        <InputLabel>Report Type</InputLabel>
+                        <Select
+                            value={selectedReport}
+                            label="Report Type"
+                            onChange={(e) => setSelectedReport(e.target.value)}
+                        >
+                            {reportTypes.map((type) => (
+                                <MenuItem key={type.value} value={type.value}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        {type.icon}
+                                        {type.label}
+                                    </Box>
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </Box>
+                <DeptShiftRangeReport />
+            </Box>
+        );
+    }
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>

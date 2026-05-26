@@ -19,6 +19,7 @@ import Payroll from './pages/Payroll';
 import Reports from './pages/Reports/Reports';
 import DepartmentShiftSummary from './pages/Reports/DepartmentShiftSummary';
 import EmployeeListReport from './pages/Reports/EmployeeListReport';
+import DeptShiftRangeReportPage from './pages/Reports/DeptShiftRangeReportPage';
 import Offboarding from './pages/Offboarding';
 import Admin from './pages/Admin';
 import Setup from './pages/Setup';
@@ -184,6 +185,17 @@ function App() {
             <ProtectedRoute requiredPage="dashboard">
               <Layout>
                 <DepartmentShiftSummary />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/reports/dept-shift-range"
+          element={
+            <ProtectedRoute requiredPage="dashboard">
+              <Layout>
+                <DeptShiftRangeReportPage />
               </Layout>
             </ProtectedRoute>
           }

@@ -1777,6 +1777,114 @@ def get_department_shift_summary():
         return error_response("Failed to retrieve department shift summary", status_code=500)
 
 
+@attendance_bp.route('/reports/department-shift-range', methods=['GET'])
+@company_required
+@hr_or_manager_required
+def get_department_shift_range_summary():
+    """Get department-shift summary for a date range (aggregated + daily breakdown)"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        status_filter = request.args.get('status_filter', 'ALL')
+
+        if not start_date or not end_date:
+            return validation_error_response("start_date and end_date are required")
+
+        if status_filter not in ['ALL', 'PRESENT', 'ABSENT']:
+            return validation_error_response("status_filter must be ALL, PRESENT, or ABSENT")
+
+        try:
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_date   = datetime.strptime(end_date,   '%Y-%m-%d').date()
+        except ValueError:
+            return validation_error_response("Invalid date format. Use YYYY-MM-DD")
+
+        if end_date < start_date:
+            return validation_error_response("end_date must be on or after start_date")
+
+        parameters = {
+            'start_date':    start_date,
+            'end_date':      end_date,
+            'status_filter': status_filter,
+        }
+
+        result = MultiTenantExecutor.execute_procedure(
+            'proc_get_department_shift_range_summary', parameters
+        )
+
+        if not result["success"]:
+            return error_response("Failed to retrieve range summary", status_code=500)
+
+        # The procedure returns two result sets; MultiTenantExecutor returns the first.
+        # We call it twice with a workaround — pass a flag via a second call isn't possible,
+        # so we use raw connection to fetch both result sets.
+        from app.database.multi_tenant_connection import connection_manager
+        import flask
+        company_code = getattr(flask.g, 'company_code', None)
+
+        aggregated = []
+        daily      = []
+
+        conn = None
+        try:
+            conn = connection_manager.get_company_connection(company_code)
+            cursor = conn.cursor()
+            cursor.execute(
+                "EXEC proc_get_department_shift_range_summary "
+                "@start_date=?, @end_date=?, @status_filter=?",
+                (start_date, end_date, status_filter)
+            )
+
+            # First result set — aggregated
+            if cursor.description:
+                cols = [c[0] for c in cursor.description]
+                for row in cursor.fetchall():
+                    aggregated.append(dict(zip(cols, row)))
+
+            # Second result set — daily breakdown
+            if cursor.nextset() and cursor.description:
+                cols = [c[0] for c in cursor.description]
+                for row in cursor.fetchall():
+                    r = dict(zip(cols, row))
+                    # Serialize date
+                    if 'attendance_date' in r and r['attendance_date']:
+                        from datetime import date as date_type
+                        if isinstance(r['attendance_date'], date_type):
+                            r['attendance_date'] = r['attendance_date'].strftime('%Y-%m-%d')
+                    daily.append(r)
+
+        finally:
+            if conn:
+                connection_manager.return_connection(company_code, conn)
+
+        # Serialize decimal fields
+        import decimal
+        def clean(obj):
+            if isinstance(obj, decimal.Decimal):
+                return float(obj)
+            return obj
+
+        aggregated = [{k: clean(v) for k, v in row.items()} for row in aggregated]
+        daily      = [{k: clean(v) for k, v in row.items()} for row in daily]
+
+        return success_response(
+            message="Department shift range summary retrieved successfully",
+            data={
+                "start_date":    start_date.strftime('%Y-%m-%d'),
+                "end_date":      end_date.strftime('%Y-%m-%d'),
+                "status_filter": status_filter,
+                "aggregated":    aggregated,
+                "daily":         daily,
+            }
+        )
+
+    except Exception as e:
+        import traceback
+        current_app.logger.error(f"Department shift range summary error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return error_response("Failed to retrieve department shift range summary", status_code=500)
+
+
 @attendance_bp.route('/reports/employee-list', methods=['GET'])
 @company_required
 @hr_or_manager_required

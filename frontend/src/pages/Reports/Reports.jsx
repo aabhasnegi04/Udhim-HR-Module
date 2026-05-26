@@ -73,6 +73,16 @@ const Reports = () => {
             comingSoon: false
         },
         {
+            id: 'dept-shift-range',
+            title: 'Dept Shift Range Report',
+            description: 'Aggregated + daily dept/shift breakdown across a date range',
+            icon: <ReportIcon sx={{ fontSize: 40 }} />,
+            color: '#00695C',
+            category: 'Factory Attendance',
+            path: '/reports/dept-shift-range',
+            comingSoon: false
+        },
+        {
             id: 'office-records',
             title: 'Office Attendance',
             description: 'Office employee attendance records',
